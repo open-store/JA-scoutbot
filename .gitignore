@@ -1,0 +1,12 @@
+.env
+*.p8
+*.pub
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+set_railway_vars.py
+debug_notes.md
+schema_notes.md
+test_snowflake.py
+explore_data.py

@@ -1,0 +1,8 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+startCommand = "python scout_bot.py"
+restartPolicyType = "always"
+restartPolicyMaxRetries = 10
