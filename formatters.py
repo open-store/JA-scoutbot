@@ -107,13 +107,12 @@ def format_csat(data: dict) -> str:
 
 
 def format_voc(data: dict) -> str:
-    """Format VOC results for Slack."""
+    """Format VOC results for Slack using resolved tag names for themes."""
     volume = data.get("volume", {})
     prev_volume = data.get("prev_volume", {})
     by_channel = data.get("by_channel", [])
     tags = data.get("tags", [])
     prev_tags = data.get("prev_tags", [])
-    subjects = data.get("subjects", [])
     status = data.get("status", [])
     timeframe = data.get("timeframe_label", "")
     days = data.get("days", 7)
@@ -133,13 +132,16 @@ def format_voc(data: dict) -> str:
         pct_change = round((total - prev_total) / prev_total * 100, 1)
         vol_change = f" ({'+' if pct_change > 0 else ''}{pct_change}% vs. previous {days} days)"
 
-    # Extract themes from subjects
-    themes = _extract_themes_from_subjects([s.get("SUBJECT", "") for s in subjects])
+    # Build previous tag lookup for period-over-period comparison
+    prev_tag_map = {t["TAG_UUID"]: t["CNT"] for t in prev_tags}
+
+    # Top theme from resolved tags
+    top_theme = tags[0].get("TAG_NAME", "unknown") if tags else None
 
     # Headline — include filter context if active
     filter_context = f" (filtered by {filter_label})" if filter_label else ""
-    if themes:
-        headline = f"*:speech_balloon: Top customer theme over the last {days} complete days{filter_context}: {themes[0][0]}.*"
+    if top_theme:
+        headline = f"*:speech_balloon: Top customer theme over the last {days} complete days{filter_context}: {top_theme}.*"
     else:
         headline = f"*:speech_balloon: Customer voice summary for the last {days} complete days{filter_context}.*"
 
@@ -166,48 +168,46 @@ def format_voc(data: dict) -> str:
             lines.append(f"• *{channel}:* {cnt:,} ({pct}%)")
         lines.append("")
 
-    # Top themes
-    if themes:
-        lines.append("*Top customer themes* (from subject lines)")
-        for theme, count in themes[:5]:
-            pct = round(count / len(subjects) * 100, 1) if subjects else 0
-            lines.append(f"• *{theme}:* ~{count} conversations ({pct}% of sampled)")
-        lines.append("")
-
-    # Tag analysis
+    # Top themes from Richpanel tags (resolved names)
     if tags:
-        lines.append("*Top tags* (by UUID — tag names pending mapping)")
-        prev_tag_map = {t["TAG_UUID"]: t["CNT"] for t in prev_tags}
-        for t in tags[:7]:
-            uuid = t.get("TAG_UUID", "?")
+        lines.append("*Top customer themes* (from Richpanel tags)")
+        for t in tags[:8]:
+            tag_name = t.get("TAG_NAME", "unknown")
             cnt = t.get("CNT", 0)
+            uuid = t.get("TAG_UUID", "")
             prev_cnt = prev_tag_map.get(uuid, 0)
             change = ""
             if prev_cnt > 0:
-                pct_change = round((cnt - prev_cnt) / prev_cnt * 100, 1)
-                change = f" ({'+' if pct_change > 0 else ''}{pct_change}% vs. prior)"
-            lines.append(f"• `{uuid[:8]}...`: {cnt} conversations{change}")
+                pct_chg = round((cnt - prev_cnt) / prev_cnt * 100, 1)
+                change = f" ({'+' if pct_chg > 0 else ''}{pct_chg}% vs. prior)"
+            pct_of_total = round(cnt / total * 100, 1) if total > 0 else 0
+            lines.append(f"• *{tag_name}:* {cnt:,} conversations ({pct_of_total}%){change}")
+        lines.append("")
+
+    # Status breakdown
+    if status:
+        lines.append("*Ticket status*")
+        for s in status[:5]:
+            st = s.get("STATUS", "unknown")
+            cnt = s.get("CNT", 0)
+            pct = round(cnt / total * 100, 1) if total > 0 else 0
+            lines.append(f"• *{st}:* {cnt:,} ({pct}%)")
         lines.append("")
 
     # So what
     lines.append("*So what*")
-    if themes:
-        lines.append(f"• The dominant customer contact theme is *{themes[0][0]}*, representing the largest share of recent conversations.")
+    if top_theme:
+        lines.append(f"• The dominant customer contact theme is *{top_theme}*, representing the largest share of tagged conversations.")
     if vol_change:
         lines.append(f"• Overall support volume is {total:,} conversations{vol_change}.")
     lines.append("")
 
     # Recommended action
     lines.append("*Recommended action*")
-    if themes:
-        lines.append(f"• *CX + Ops:* Prioritize review of `{themes[0][0]}` conversations for macro/process improvements.")
+    if top_theme:
+        lines.append(f"• *CX + Ops:* Prioritize review of `{top_theme}` conversations for macro/process improvements.")
     else:
         lines.append("• *CX:* Review recent ticket subjects for emerging patterns.")
-
-    # Caveat
-    lines.append("")
-    lines.append("*Caveat*")
-    lines.append("• Theme extraction is based on subject-line keyword analysis of a sample. Tags are displayed as UUIDs pending Richpanel tag name mapping.")
 
     return "\n".join(lines)
 
