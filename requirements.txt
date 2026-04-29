@@ -1,0 +1,8 @@
+certifi==2026.2.25
+cryptography==46.0.7
+httpx==0.28.1
+openai==2.32.0
+python-dotenv==1.2.2
+slack_bolt==1.28.0
+slack_sdk==3.41.0
+snowflake-connector-python==4.4.0
