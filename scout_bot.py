@@ -18,12 +18,8 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 # Add scout directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from command_parser import parse_command
-from formatters import format_csat, format_voc, format_errors, format_help, format_not_available
-from queries.csat import run_csat
-from queries.voc import run_voc
-from queries.errors import run_errors
-from nl_router import route_natural_language, build_command_from_routing
+from formatters import format_help
+from scout_service import execute_scout_command, execute_natural_language
 
 load_dotenv("/home/ubuntu/scout/.env")
 
@@ -43,46 +39,6 @@ app = App(
 # ---------------------------------------------------------------------------
 # Core execution helpers
 # ---------------------------------------------------------------------------
-
-def execute_scout_command(raw_input: str) -> str:
-    """Parse and execute a Scout command string. Returns formatted Slack text."""
-    cmd = parse_command(raw_input)
-
-    if not cmd.is_valid:
-        return cmd.error_message
-
-    if cmd.command == "help":
-        return format_help()
-
-    if cmd.command == "csat":
-        data = run_csat(cmd)
-        return format_csat(data)
-
-    if cmd.command == "voc":
-        data = run_voc(cmd)
-        return format_voc(data)
-
-    if cmd.command == "errors":
-        data = run_errors(cmd)
-        return format_errors(data)
-
-    if cmd.command in ("nps", "returns", "reviews"):
-        return format_not_available(cmd.command)
-
-    return (
-        f"Unknown command `{cmd.command}`.\n"
-        "Try `/scout-help` to see what Scout can do."
-    )
-
-
-def execute_natural_language(text: str) -> str:
-    """Route a natural language question to the right Scout command via LLM."""
-    routing = route_natural_language(text)
-    command_str = build_command_from_routing(routing)
-    confidence = routing.get("confidence", "?")
-    logger.info(f"NL '{text}' → '{command_str}' (confidence: {confidence})")
-    return execute_scout_command(command_str)
-
 
 def run_in_background(fn, *args, **kwargs):
     """Fire-and-forget a function in a daemon thread."""
@@ -185,7 +141,9 @@ def handle_mention(event, say, client):
 
     def _run():
         try:
-            result = execute_natural_language(text)
+            result, routing = execute_natural_language(text)
+            confidence = routing.get("confidence", "?")
+            logger.info(f"NL '{text}' → confidence: {confidence}")
         except Exception as e:
             logger.error(f"Error on NL query '{text}': {e}", exc_info=True)
             result = (
@@ -231,7 +189,9 @@ def handle_dm(event, say, client):
 
     def _run():
         try:
-            result = execute_natural_language(text)
+            result, routing = execute_natural_language(text)
+            confidence = routing.get("confidence", "?")
+            logger.info(f"NL '{text}' → confidence: {confidence}")
         except Exception as e:
             logger.error(f"Error on DM query '{text}': {e}", exc_info=True)
             result = (

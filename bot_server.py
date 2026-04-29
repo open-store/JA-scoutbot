@@ -24,12 +24,8 @@ from slack_sdk.errors import SlackApiError
 # Add scout directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from command_parser import parse_command, parse_natural_language
-from formatters import format_csat, format_voc, format_errors, format_help, format_not_available
-from queries.csat import run_csat
-from queries.voc import run_voc
-from queries.errors import run_errors
-from nl_router import route_natural_language, build_command_from_routing
+from formatters import format_help
+from scout_service import execute_scout_command, execute_natural_language
 
 load_dotenv("/home/ubuntu/scout/.env")
 
@@ -67,43 +63,6 @@ def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) 
 # Core Scout execution
 # ---------------------------------------------------------------------------
 
-def execute_scout_command(raw_input: str) -> str:
-    """Parse and execute a Scout command. Returns formatted Slack message."""
-    cmd = parse_command(raw_input)
-
-    if not cmd.is_valid:
-        return cmd.error_message
-
-    if cmd.command == "help":
-        return format_help()
-
-    if cmd.command == "csat":
-        data = run_csat(cmd)
-        return format_csat(data)
-
-    if cmd.command == "voc":
-        data = run_voc(cmd)
-        return format_voc(data)
-
-    if cmd.command == "errors":
-        data = run_errors(cmd)
-        return format_errors(data)
-
-    if cmd.command in ("nps", "returns", "reviews"):
-        return format_not_available(cmd.command)
-
-    return f"Unknown command `{cmd.command}`. Try `/scout-help` for available commands."
-
-
-def execute_natural_language(text: str) -> str:
-    """Route a natural language message to the appropriate Scout command using LLM."""
-    # Use LLM router first, fall back to keyword matching
-    routing = route_natural_language(text)
-    command_str = build_command_from_routing(routing)
-    logger.info(f"NL '{text}' → '{command_str}' (confidence: {routing.get('confidence')})")
-    return execute_scout_command(command_str)
-
-
 # ---------------------------------------------------------------------------
 # Async response helpers
 # ---------------------------------------------------------------------------
@@ -123,7 +82,7 @@ def post_to_response_url(response_url: str, message: str):
         logger.error(f"Failed to post to response_url: {e}")
 
 
-def post_to_channel(channel_id: str, message: str, thread_ts: Optional[str] = None):
+def post_to_channel(channel_id: str, message: str, thread_ts: Optional[str] = None) -> bool:
     """Post a message to a Slack channel via the bot token."""
     try:
         kwargs = {"channel": channel_id, "text": message, "mrkdwn": True}
@@ -131,8 +90,13 @@ def post_to_channel(channel_id: str, message: str, thread_ts: Optional[str] = No
             kwargs["thread_ts"] = thread_ts
         slack_client.chat_postMessage(**kwargs)
         logger.info(f"Posted to channel {channel_id}")
+        return True
     except SlackApiError as e:
-        logger.error(f"Slack API error posting to {channel_id}: {e.response['error']}")
+        logger.error(
+            f"Slack API error posting to {channel_id}: error={e.response.get('error')} "
+            f"status={getattr(e.response, 'status_code', 'unknown')}"
+        )
+        return False
 
 
 def run_command_async(raw_input: str, response_url: str, channel_id: str,
@@ -155,7 +119,8 @@ def run_nl_async(text: str, channel_id: str, user_id: str, thread_ts: Optional[s
     """Execute natural language query in background thread and post result."""
     logger.info(f"Running NL query: '{text}' for user {user_id}")
     try:
-        result = execute_natural_language(text)
+        result, routing = execute_natural_language(text)
+        logger.info(f"NL confidence: {routing.get('confidence')}")
     except Exception as e:
         logger.error(f"Error executing NL query '{text}': {e}")
         result = (
@@ -163,7 +128,11 @@ def run_nl_async(text: str, channel_id: str, user_id: str, thread_ts: Optional[s
             f"Error: `{str(e)[:200]}`\n"
             f"Try `/scout-help` for available commands."
         )
-    post_to_channel(channel_id, result, thread_ts=thread_ts)
+    posted = post_to_channel(channel_id, result, thread_ts=thread_ts)
+    if not posted:
+        logger.warning(
+            "NL result could not be posted to Slack. Check bot channel membership, scope permissions, and Slack Connect restrictions."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -339,7 +308,9 @@ async def handle_events(request: Request, background_tasks: BackgroundTasks):
                 mrkdwn=True,
             )
         except SlackApiError as e:
-            logger.error(f"Failed to post ack: {e}")
+            logger.error(
+                f"Failed to post ack: error={e.response.get('error') if hasattr(e, 'response') else e}"
+            )
 
         background_tasks.add_task(
             run_nl_async,
@@ -369,7 +340,9 @@ async def handle_events(request: Request, background_tasks: BackgroundTasks):
                 mrkdwn=True,
             )
         except SlackApiError as e:
-            logger.error(f"Failed to post DM ack: {e}")
+            logger.error(
+                f"Failed to post DM ack: error={e.response.get('error') if hasattr(e, 'response') else e}"
+            )
 
         background_tasks.add_task(
             run_nl_async,
@@ -389,5 +362,7 @@ async def handle_events(request: Request, background_tasks: BackgroundTasks):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
+    logger.info("Starting Scout bot server in HTTP Events mode")
+    logger.info("Expected endpoints: /slack/commands/* and /slack/events")
     logger.info(f"Starting Scout bot server on port {port}")
     uvicorn.run("bot_server:app", host="0.0.0.0", port=port, reload=False)
