@@ -52,7 +52,7 @@ class ParsedCommand:
             "voc": "snowflake",
             "errors": "snowflake",
             "nps": "knocommerce",
-            "returns": "redo",
+            "returns": "snowflake",
             "reviews": "okendo",
             "help": "none",
         }
