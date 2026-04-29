@@ -11,10 +11,13 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from command_parser import parse_command, ParsedCommand
-from formatters import format_csat, format_voc, format_errors, format_help, format_not_available
+from formatters import format_csat, format_voc, format_errors, format_help, format_not_available, format_nps, format_reviews, format_returns
 from queries.csat import run_csat
 from queries.voc import run_voc
 from queries.errors import run_errors
+from queries.nps import run_nps
+from queries.reviews import run_reviews
+from queries.returns import run_returns
 
 
 def execute_command(raw_input: str) -> str:
@@ -42,8 +45,19 @@ def execute_command(raw_input: str) -> str:
         data = run_errors(cmd)
         return format_errors(data)
 
-    if cmd.command in ("nps", "returns", "reviews"):
-        return format_not_available(cmd.command)
+    if cmd.command == "nps":
+        data = run_nps(cmd.days)
+        return format_nps(data)
+
+    if cmd.command == "reviews":
+        product = cmd.filters.get("product") if cmd.filters else None
+        data = run_reviews(cmd.days, product_filter=product)
+        return format_reviews(data)
+
+    if cmd.command == "returns":
+        product = cmd.filters.get("product") if cmd.filters else None
+        data = run_returns(cmd.days, product_filter=product)
+        return format_returns(data)
 
     return f"Unknown command: `{cmd.command}`. Try `/Help` for available commands."
 
