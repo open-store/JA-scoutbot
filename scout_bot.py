@@ -94,8 +94,20 @@ def execute_natural_language(text: str) -> str:
     routing = route_natural_language(text)
     command_str = build_command_from_routing(routing)
     confidence = routing.get("confidence", "?")
-    logger.info(f"NL '{text}' → '{command_str}' (confidence: {confidence})")
-    return execute_scout_command(command_str)
+    reasoning = routing.get("reasoning", "")
+    logger.info(f"NL '{text}' → '{command_str}' (confidence: {confidence}, reasoning: {reasoning})")
+
+    result = execute_scout_command(command_str)
+
+    # If confidence is low, prepend a disambiguation note so the user knows
+    if confidence == "low":
+        result = (
+            f"_:thinking_face: I wasn't fully sure what you meant, so I ran `{command_str}`. "
+            f"If this isn't right, try being more specific or use a slash command directly._\n\n"
+            + result
+        )
+
+    return result
 
 
 def run_in_background(fn, *args, **kwargs):

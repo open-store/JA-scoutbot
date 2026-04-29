@@ -1,11 +1,13 @@
 """
 Scout VOC Query Module
 Generates and executes Voice of Customer queries against Snowflake.
-Supports optional filters: product (subject keyword), tag (UUID or partial), channel, agent.
+Uses the Richpanel tag mapping for deterministic theme classification.
+Supports optional filters: product (subject keyword), tag (name or UUID), channel, agent.
 """
 
 from command_parser import ParsedCommand
 from snowflake_client import execute_query_dict
+from tag_mapping import TAG_ID_TO_NAME
 
 
 def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str]:
@@ -19,7 +21,6 @@ def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str]:
 
     product = cmd.filters.get("product")
     if product:
-        # Filter by subject containing the product keyword (case-insensitive)
         safe = product.replace("'", "''")
         clauses.append(f"AND LOWER(SUBJECT) LIKE '%{safe.lower()}%'")
         labels.append(f"product: {product}")
@@ -32,9 +33,21 @@ def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str]:
 
     tag = cmd.filters.get("tag")
     if tag:
-        safe = tag.replace("'", "''")
-        # Partial match on tag UUID or tag text in the JSON array string
-        clauses.append(f"AND LOWER(TAGS::STRING) LIKE '%{safe.lower()}%'")
+        # Support filtering by tag name (resolve to UUIDs) or by UUID directly
+        matching_uuids = [
+            uuid for uuid, name in TAG_ID_TO_NAME.items()
+            if tag.lower() in name.lower()
+        ]
+        if matching_uuids:
+            uuid_list = ", ".join(f"'{u}'" for u in matching_uuids)
+            clauses.append(
+                f"AND EXISTS (SELECT 1 FROM LATERAL FLATTEN(input => PARSE_JSON(TAGS)) ft "
+                f"WHERE ft.value::STRING IN ({uuid_list}))"
+            )
+        else:
+            # Assume it's a raw UUID or partial UUID
+            safe = tag.replace("'", "''")
+            clauses.append(f"AND LOWER(TAGS::STRING) LIKE '%{safe.lower()}%'")
         labels.append(f"tag: {tag}")
 
     agent = cmd.filters.get("agent")
@@ -46,11 +59,39 @@ def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str]:
     return "\n    ".join(clauses), ", ".join(labels) if labels else ""
 
 
+# Tags that represent system processes, automation, or noise — not customer intent
+EXCLUDE_TAGS = {
+    "unknown", "other", "action", "comment", "issue",
+    "ai-social-media-moderator", "ai-social-media-moderator-hidden",
+    "ai-social-media-moderator-flagged", "ai-social-media-moderator-replied",
+    "ai-social-media-moderator-autoclosed",
+    "generic-comments-spam", "inappropriate-engagements",
+    "gmail-import", "exclude-csat", "l1-manual", "l2-manual", "l2",
+    "campaigns", "contest-giveaway",
+}
+
+
+def _resolve_tags(tag_rows: list[dict]) -> list[dict]:
+    """
+    Resolve tag UUIDs to human-readable names using the tag mapping.
+    Excludes automation/noise tags to surface real customer intent themes.
+    Returns enriched rows with TAG_NAME added.
+    """
+    resolved = []
+    for row in tag_rows:
+        uuid = row.get("TAG_UUID", "")
+        name = TAG_ID_TO_NAME.get(uuid, None)
+        if name and name not in EXCLUDE_TAGS:
+            row["TAG_NAME"] = name
+            resolved.append(row)
+    return resolved
+
+
 def run_voc(cmd: ParsedCommand) -> dict:
     """
     Execute VOC analysis for the given command.
     Returns a dict with all the data needed for formatting.
-    Respects optional filters: product, channel, tag, agent.
+    Uses tag mapping for theme classification instead of subject-line keywords.
     """
     start = cmd.start_date.strftime("%Y-%m-%d %H:%M:%S")
     end = cmd.end_date.strftime("%Y-%m-%d %H:%M:%S")
@@ -78,7 +119,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     volume = execute_query_dict(volume_sql)
     volume_data = volume[0] if volume else {}
 
-    # --- Previous period volume (same filters applied for fair comparison) ---
+    # --- Previous period volume ---
     prev_volume_sql = f"""
     SELECT
         COUNT(*) AS total_conversations
@@ -106,7 +147,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     """
     channel_data = execute_query_dict(channel_sql)
 
-    # --- Tag frequency (current period) ---
+    # --- Tag frequency (current period) — the primary theme source ---
     tag_sql = f"""
     SELECT
         f.value::STRING AS tag_uuid,
@@ -120,7 +161,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     {filter_sql}
     GROUP BY tag_uuid
     ORDER BY cnt DESC
-    LIMIT 15
+    LIMIT 25
     """
     tag_data = execute_query_dict(tag_sql)
 
@@ -138,30 +179,13 @@ def run_voc(cmd: ParsedCommand) -> dict:
     {filter_sql}
     GROUP BY tag_uuid
     ORDER BY cnt DESC
-    LIMIT 30
+    LIMIT 50
     """
     prev_tag_data = execute_query_dict(prev_tag_sql)
 
-    # --- Subject themes: pull more subjects when filtered (for richer analysis) ---
-    subject_limit = 200 if filter_sql else 100
-    subjects_sql = f"""
-    SELECT
-        SUBJECT,
-        CHANNEL,
-        SATISFACTION_RATING,
-        TAGS,
-        CREATED_AT
-    FROM FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS
-    WHERE _FIVETRAN_DELETED = FALSE
-      AND CREATED_AT >= '{start}'
-      AND CREATED_AT < '{end}'
-      AND SUBJECT IS NOT NULL
-      AND SUBJECT != ''
-    {filter_sql}
-    ORDER BY CREATED_AT DESC
-    LIMIT {subject_limit}
-    """
-    subjects_data = execute_query_dict(subjects_sql)
+    # --- Resolve tags to human-readable names ---
+    resolved_tags = _resolve_tags(tag_data)
+    resolved_prev_tags = _resolve_tags(prev_tag_data)
 
     # --- Status distribution ---
     status_sql = f"""
@@ -182,9 +206,8 @@ def run_voc(cmd: ParsedCommand) -> dict:
         "volume": volume_data,
         "prev_volume": prev_volume_data,
         "by_channel": channel_data,
-        "tags": tag_data,
-        "prev_tags": prev_tag_data,
-        "subjects": subjects_data,
+        "tags": resolved_tags,
+        "prev_tags": resolved_prev_tags,
         "status": status_data,
         "timeframe_label": cmd.timeframe_label,
         "days": cmd.days,
