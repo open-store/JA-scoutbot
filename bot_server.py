@@ -24,12 +24,7 @@ from slack_sdk.errors import SlackApiError
 # Add scout directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from command_parser import parse_command, parse_natural_language
-from formatters import format_csat, format_voc, format_errors, format_help, format_not_available
-from queries.csat import run_csat
-from queries.voc import run_voc
-from queries.errors import run_errors
-from nl_router import route_natural_language, build_command_from_routing
+from scout_service import execute_scout_command, execute_natural_language
 
 load_dotenv("/home/ubuntu/scout/.env")
 
@@ -66,43 +61,6 @@ def verify_slack_signature(request_body: bytes, timestamp: str, signature: str) 
 # ---------------------------------------------------------------------------
 # Core Scout execution
 # ---------------------------------------------------------------------------
-
-def execute_scout_command(raw_input: str) -> str:
-    """Parse and execute a Scout command. Returns formatted Slack message."""
-    cmd = parse_command(raw_input)
-
-    if not cmd.is_valid:
-        return cmd.error_message
-
-    if cmd.command == "help":
-        return format_help()
-
-    if cmd.command == "csat":
-        data = run_csat(cmd)
-        return format_csat(data)
-
-    if cmd.command == "voc":
-        data = run_voc(cmd)
-        return format_voc(data)
-
-    if cmd.command == "errors":
-        data = run_errors(cmd)
-        return format_errors(data)
-
-    if cmd.command in ("nps", "returns", "reviews"):
-        return format_not_available(cmd.command)
-
-    return f"Unknown command `{cmd.command}`. Try `/scout-help` for available commands."
-
-
-def execute_natural_language(text: str) -> str:
-    """Route a natural language message to the appropriate Scout command using LLM."""
-    # Use LLM router first, fall back to keyword matching
-    routing = route_natural_language(text)
-    command_str = build_command_from_routing(routing)
-    logger.info(f"NL '{text}' → '{command_str}' (confidence: {routing.get('confidence')})")
-    return execute_scout_command(command_str)
-
 
 # ---------------------------------------------------------------------------
 # Async response helpers
@@ -155,7 +113,8 @@ def run_nl_async(text: str, channel_id: str, user_id: str, thread_ts: Optional[s
     """Execute natural language query in background thread and post result."""
     logger.info(f"Running NL query: '{text}' for user {user_id}")
     try:
-        result = execute_natural_language(text)
+        result, routing = execute_natural_language(text)
+        logger.info(f"NL confidence: {routing.get('confidence')}")
     except Exception as e:
         logger.error(f"Error executing NL query '{text}': {e}")
         result = (
