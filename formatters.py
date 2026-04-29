@@ -6,6 +6,7 @@ NOTE: Slack uses *bold* (single asterisk), not **bold** (double asterisk).
 """
 
 from typing import Optional
+from theme_classifier import summarize_subject_themes
 
 
 def format_csat(data: dict) -> str:
@@ -81,12 +82,17 @@ def format_csat(data: dict) -> str:
     # Low-CSAT themes
     if low_csat:
         lines.append("*Low-CSAT ticket themes* (from subject lines)")
-        themes = _extract_themes_from_subjects([s.get("SUBJECT", "") for s in low_csat])
+        theme_summary = summarize_subject_themes([s.get("SUBJECT", "") for s in low_csat])
+        themes = theme_summary["themes"]
         for theme, count in themes[:5]:
             lines.append(f"• *{theme}:* {count} tickets")
         lines.append("")
 
     # Caveat
+    if low_csat:
+        lines.append(f"• Theme coverage (low-CSAT sample): {theme_summary['coverage_pct']}% classified, {theme_summary['unclassified_pct']}% unclassified.")
+        lines.append("")
+
     if total_rated < 30:
         lines.append("*Caveat*")
         lines.append(f"• Low sample size ({total_rated} responses). Results are directional only.")
@@ -95,7 +101,7 @@ def format_csat(data: dict) -> str:
     # Recommended action
     lines.append("*Recommended action*")
     if low_csat:
-        top_theme = _extract_themes_from_subjects([s.get("SUBJECT", "") for s in low_csat])
+        top_theme = summarize_subject_themes([s.get("SUBJECT", "") for s in low_csat])["themes"]
         if top_theme:
             lines.append(f"• *CX + Ops:* Investigate `{top_theme[0][0]}` tickets — the leading low-CSAT driver this period.")
         else:
@@ -134,7 +140,8 @@ def format_voc(data: dict) -> str:
         vol_change = f" ({'+' if pct_change > 0 else ''}{pct_change}% vs. previous {days} days)"
 
     # Extract themes from subjects
-    themes = _extract_themes_from_subjects([s.get("SUBJECT", "") for s in subjects])
+    theme_summary = summarize_subject_themes([s.get("SUBJECT", "") for s in subjects])
+    themes = theme_summary["themes"]
 
     # Headline — include filter context if active
     filter_context = f" (filtered by {filter_label})" if filter_label else ""
@@ -207,7 +214,9 @@ def format_voc(data: dict) -> str:
     # Caveat
     lines.append("")
     lines.append("*Caveat*")
-    lines.append("• Theme extraction is based on subject-line keyword analysis of a sample. Tags are displayed as UUIDs pending Richpanel tag name mapping.")
+    lines.append("• Theme extraction is based on deterministic subject-line keyword analysis with single-theme assignment per subject.")
+    lines.append(f"• Theme coverage: {theme_summary['coverage_pct']}% classified, {theme_summary['unclassified_pct']}% unclassified.")
+    lines.append("• Tags are displayed as UUIDs pending Richpanel tag name mapping.")
 
     return "\n".join(lines)
 
@@ -355,31 +364,3 @@ def _no_data_message(command: str, timeframe: str, source: str) -> str:
     )
 
 
-def _extract_themes_from_subjects(subjects: list[str]) -> list[tuple[str, int]]:
-    """
-    Simple keyword-based theme extraction from subject lines.
-    Returns list of (theme, count) sorted by count descending.
-    """
-    theme_keywords = {
-        "Shipping/Delivery": ["shipping", "delivery", "tracking", "shipped", "transit", "usps", "ups", "fedex", "delayed", "lost package", "where is my order", "wismo"],
-        "Returns/Exchanges": ["return", "exchange", "refund", "send back", "return label", "rma"],
-        "Sizing/Fit": ["size", "sizing", "fit", "too big", "too small", "measurements", "length"],
-        "Discount/Promo Codes": ["discount", "promo", "coupon", "code", "promotion"],
-        "Order Issues": ["order", "cancel", "cancellation", "wrong item", "missing item", "incomplete"],
-        "Product Quality": ["quality", "defect", "damaged", "broken", "stain", "hole", "tear", "fabric"],
-        "Account/Login": ["account", "login", "password", "sign in", "email"],
-        "Subscription/Billing": ["subscription", "billing", "charge", "charged", "recurring"],
-        "General Inquiry": ["question", "inquiry", "info", "information", "help"],
-    }
-
-    theme_counts = {}
-    for subject in subjects:
-        if not subject:
-            continue
-        subject_lower = subject.lower()
-        for theme, keywords in theme_keywords.items():
-            if any(kw in subject_lower for kw in keywords):
-                theme_counts[theme] = theme_counts.get(theme, 0) + 1
-
-    sorted_themes = sorted(theme_counts.items(), key=lambda x: x[1], reverse=True)
-    return sorted_themes
