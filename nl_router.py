@@ -35,6 +35,10 @@ Scout supports these commands:
 
 Supported timeframes: L7 (7 days), L30 (30 days), L180 (180 days). Default to L7 if not specified.
 
+Important filter rule:
+- Only include non-empty `filters` for `VOC` requests.
+- For CSAT/Errors/NPS/Returns/Reviews/Help, return `filters`: {}.
+
 Respond with ONLY a JSON object in this exact format:
 {
   "command": "CSAT" | "VOC" | "Errors" | "NPS" | "Returns" | "Reviews" | "Help",
