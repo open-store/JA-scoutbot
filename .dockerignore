@@ -1,0 +1,32 @@
+# Secrets — never include in Docker image
+.env
+*.p8
+*.pub
+*.pem
+*.key
+
+# Debug and exploration scripts
+debug_*.py
+explore_*.py
+test_*.py
+set_railway_vars.py
+set_new_railway_vars.py
+fix_railway_envvars.py
+kno_auth_debug.md
+*_notes.md
+*_api_notes.md
+
+# Git
+.git
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Logs
+*.log
+nohup.out

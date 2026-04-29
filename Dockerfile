@@ -14,14 +14,8 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY command_parser.py .
-COPY snowflake_client.py .
-COPY formatters.py .
-COPY nl_router.py .
-COPY scout_bot.py .
-COPY scout.py .
-COPY queries/ ./queries/
+# Copy all application code (uses .dockerignore to exclude secrets)
+COPY . .
 
 # Railway injects environment variables — no .env file needed in production
 # The bot reads from os.environ directly
