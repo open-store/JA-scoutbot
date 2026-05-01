@@ -99,7 +99,8 @@ def execute_natural_language(text: str) -> str:
 
     result = execute_scout_command(command_str)
 
-    # If confidence is low, prepend a disambiguation note so the user knows
+    # Only show disambiguation note for genuinely low-confidence routing
+    # Medium confidence means the LLM understood the intent but the query was conversational
     if confidence == "low":
         result = (
             f"_:thinking_face: I wasn't fully sure what you meant, so I ran `{command_str}`. "

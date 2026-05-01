@@ -8,6 +8,7 @@ Supports optional filters: product (subject keyword), tag (name or UUID), channe
 from command_parser import ParsedCommand
 from snowflake_client import execute_query_dict
 from tag_mapping import TAG_ID_TO_NAME
+from product_feedback import get_product_messages, synthesize_product_feedback
 
 
 def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str]:
@@ -202,6 +203,15 @@ def run_voc(cmd: ParsedCommand) -> dict:
     """
     status_data = execute_query_dict(status_sql)
 
+    # --- Product feedback synthesis (only when product filter is active) ---
+    product_feedback = None
+    product = cmd.filters.get("product") if cmd.filters else None
+    if product:
+        messages = get_product_messages(product, start, end, execute_query_dict)
+        product_feedback = synthesize_product_feedback(
+            messages, product, volume_data.get("TOTAL_CONVERSATIONS", 0)
+        )
+
     return {
         "volume": volume_data,
         "prev_volume": prev_volume_data,
@@ -212,4 +222,5 @@ def run_voc(cmd: ParsedCommand) -> dict:
         "timeframe_label": cmd.timeframe_label,
         "days": cmd.days,
         "filter_label": filter_label,
+        "product_feedback": product_feedback,
     }
