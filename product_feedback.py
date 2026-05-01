@@ -6,19 +6,24 @@ When a VOC query includes a product filter, this module:
 3. Uses the LLM to synthesize the top qualitative themes from the messages
 """
 
+import os
 import re
 import logging
 from openai import OpenAI
 
 logger = logging.getLogger("scout.product_feedback")
 
+# Always use direct OpenAI API — avoid Manus proxy (blocked on Railway)
 _client = None
 
 
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI()
+        _client = OpenAI(
+            base_url="https://api.openai.com/v1",
+            api_key=os.environ.get("OPENAI_API_KEY"),
+        )
     return _client
 
 
