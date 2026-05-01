@@ -184,6 +184,30 @@ def format_voc(data: dict) -> str:
             lines.append(f"• *{tag_name}:* {cnt:,} conversations ({pct_of_total}%){change}")
         lines.append("")
 
+    # Product feedback synthesis (only when product filter is active)
+    product_feedback = data.get("product_feedback")
+    if product_feedback and product_feedback.get("sample_count", 0) > 0:
+        pf_summary = product_feedback.get("summary", "")
+        pf_themes = product_feedback.get("themes", [])
+        pf_count = product_feedback.get("sample_count", 0)
+        lines.append(f"*:mag: What customers are saying* (synthesized from {pf_count} messages)")
+        if pf_summary:
+            lines.append(f"_{pf_summary}_")
+            lines.append("")
+        if pf_themes:
+            for theme in pf_themes:
+                name = theme.get("theme", "")
+                count = theme.get("count", "")
+                example = theme.get("example", "")
+                count_str = f" — {count} mentions" if count else ""
+                example_str = f" \"_{example}_\"" if example else ""
+                lines.append(f"• *{name}*{count_str}{example_str}")
+        lines.append("")
+    elif product_feedback is not None:
+        lines.append("*:mag: What customers are saying*")
+        lines.append("_No customer messages found for this product in this period._")
+        lines.append("")
+
     # Status breakdown
     if status:
         lines.append("*Ticket status*")
@@ -196,7 +220,9 @@ def format_voc(data: dict) -> str:
 
     # So what
     lines.append("*So what*")
-    if top_theme:
+    if product_feedback and product_feedback.get("summary"):
+        lines.append(f"• {product_feedback['summary']}")
+    elif top_theme:
         lines.append(f"• The dominant customer contact theme is *{top_theme}*, representing the largest share of tagged conversations.")
     if vol_change:
         lines.append(f"• Overall support volume is {total:,} conversations{vol_change}.")
@@ -204,7 +230,10 @@ def format_voc(data: dict) -> str:
 
     # Recommended action
     lines.append("*Recommended action*")
-    if top_theme:
+    if product_feedback and product_feedback.get("themes"):
+        top_pf_theme = product_feedback["themes"][0].get("theme", "")
+        lines.append(f"• *Product:* Top customer feedback theme is *{top_pf_theme}* — consider for V2 design decisions.")
+    elif top_theme:
         lines.append(f"• *CX + Ops:* Prioritize review of `{top_theme}` conversations for macro/process improvements.")
     else:
         lines.append("• *CX:* Review recent ticket subjects for emerging patterns.")
