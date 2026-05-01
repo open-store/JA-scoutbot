@@ -11,14 +11,19 @@ from openai import OpenAI
 
 logger = logging.getLogger("scout.nl_router")
 
-# OpenAI client (uses OPENAI_API_KEY and OPENAI_BASE_URL from environment)
+# OpenAI client — always uses the direct OpenAI API endpoint.
+# We explicitly set base_url to avoid picking up OPENAI_BASE_URL (Manus proxy)
+# which is blocked on Railway's IP. The OPENAI_API_KEY env var is still used.
 _client = None
 
 
 def _get_client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI()
+        _client = OpenAI(
+            base_url="https://api.openai.com/v1",
+            api_key=os.environ.get("OPENAI_API_KEY"),
+        )
     return _client
 
 
