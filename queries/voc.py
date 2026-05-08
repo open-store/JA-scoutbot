@@ -3,6 +3,11 @@ Scout VOC Query Module
 Generates and executes Voice of Customer queries against Snowflake.
 Uses the Richpanel tag mapping for deterministic theme classification.
 Supports optional filters: product (subject keyword), tag (name or UUID), channel, agent.
+
+Overhaul (May 2026):
+- Auto-reply exclusion applied globally to all VOC queries
+- Product matching broadened to first keyword (e.g. "clubhouse" matches "Clubhouse Performance Polo")
+- Low-sample caveat flag added for product queries with < 5 real messages
 """
 
 from command_parser import ParsedCommand
@@ -11,19 +16,50 @@ from tag_mapping import TAG_ID_TO_NAME
 from product_feedback import get_product_messages, synthesize_product_feedback
 
 
-def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str]:
+# SQL fragment to exclude auto-replies and marketing noise from all VOC queries
+_AUTOREPLY_EXCLUSION = """
+      AND LOWER(SUBJECT) NOT LIKE '%automatic reply%'
+      AND LOWER(SUBJECT) NOT LIKE '%autoreply%'
+      AND LOWER(SUBJECT) NOT LIKE '%auto-reply%'
+      AND LOWER(SUBJECT) NOT LIKE '%out of office%'
+      AND LOWER(SUBJECT) NOT LIKE '%vacation%'
+      AND LOWER(SUBJECT) NOT LIKE '%away from the office%'
+      AND LOWER(SUBJECT) NOT LIKE '%be back%'
+      AND LOWER(SUBJECT) NOT LIKE '%unsubscribe%'
+"""
+
+
+def _extract_product_keyword(product: str) -> str:
+    """
+    Extract the primary search keyword from a product name.
+    For multi-word products, uses the first meaningful word (3+ chars).
+    E.g. "Clubhouse polo" -> "clubhouse", "Anytime Crewneck" -> "anytime"
+    Falls back to the full product string if no single keyword found.
+    """
+    words = product.strip().split()
+    for word in words:
+        clean = word.strip("\"'").lower()
+        if len(clean) >= 3:
+            return clean
+    return product.lower()
+
+
+def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str, str]:
     """
     Build additional WHERE clause fragments and a human-readable filter label
     from the parsed command's filters dict.
-    Returns (sql_fragment, label_string).
+    Returns (sql_fragment, label_string, product_keyword).
+    product_keyword is the broadened keyword used for subject matching (empty if no product filter).
     """
     clauses = []
     labels = []
+    product_keyword = ""
 
     product = cmd.filters.get("product")
     if product:
-        safe = product.replace("'", "''")
-        clauses.append(f"AND LOWER(SUBJECT) LIKE '%{safe.lower()}%'")
+        product_keyword = _extract_product_keyword(product)
+        safe = product_keyword.replace("'", "''")
+        clauses.append(f"AND LOWER(SUBJECT) LIKE '%{safe}%'")
         labels.append(f"product: {product}")
 
     channel = cmd.filters.get("channel")
@@ -57,7 +93,7 @@ def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str]:
         clauses.append(f"AND LOWER(ASSIGNED_AGENT_ID::STRING) LIKE '%{safe.lower()}%'")
         labels.append(f"agent: {agent}")
 
-    return "\n    ".join(clauses), ", ".join(labels) if labels else ""
+    return "\n    ".join(clauses), ", ".join(labels) if labels else "", product_keyword
 
 
 # Tags that represent system processes, automation, or noise — not customer intent
@@ -93,13 +129,14 @@ def run_voc(cmd: ParsedCommand) -> dict:
     Execute VOC analysis for the given command.
     Returns a dict with all the data needed for formatting.
     Uses tag mapping for theme classification instead of subject-line keywords.
+    Auto-replies and marketing noise are excluded from all queries.
     """
     start = cmd.start_date.strftime("%Y-%m-%d %H:%M:%S")
     end = cmd.end_date.strftime("%Y-%m-%d %H:%M:%S")
     prev_start = cmd.previous_start_date.strftime("%Y-%m-%d %H:%M:%S")
     prev_end = cmd.previous_end_date.strftime("%Y-%m-%d %H:%M:%S")
 
-    filter_sql, filter_label = _build_filter_clause(cmd)
+    filter_sql, filter_label, product_keyword = _build_filter_clause(cmd)
 
     # --- Current period volume ---
     volume_sql = f"""
@@ -115,6 +152,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
+    {_AUTOREPLY_EXCLUSION}
     {filter_sql}
     """
     volume = execute_query_dict(volume_sql)
@@ -128,6 +166,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{prev_start}'
       AND CREATED_AT < '{prev_end}'
+    {_AUTOREPLY_EXCLUSION}
     {filter_sql}
     """
     prev_volume = execute_query_dict(prev_volume_sql)
@@ -142,6 +181,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
+    {_AUTOREPLY_EXCLUSION}
     {filter_sql}
     GROUP BY CHANNEL
     ORDER BY cnt DESC
@@ -159,6 +199,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
       AND TAGS IS NOT NULL
+    {_AUTOREPLY_EXCLUSION}
     {filter_sql}
     GROUP BY tag_uuid
     ORDER BY cnt DESC
@@ -177,6 +218,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
       AND CREATED_AT >= '{prev_start}'
       AND CREATED_AT < '{prev_end}'
       AND TAGS IS NOT NULL
+    {_AUTOREPLY_EXCLUSION}
     {filter_sql}
     GROUP BY tag_uuid
     ORDER BY cnt DESC
@@ -197,6 +239,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
+    {_AUTOREPLY_EXCLUSION}
     {filter_sql}
     GROUP BY STATUS
     ORDER BY cnt DESC
@@ -207,7 +250,9 @@ def run_voc(cmd: ParsedCommand) -> dict:
     product_feedback = None
     product = cmd.filters.get("product") if cmd.filters else None
     if product:
-        messages = get_product_messages(product, start, end, execute_query_dict)
+        messages = get_product_messages(
+            product_keyword, start, end, execute_query_dict
+        )
         product_feedback = synthesize_product_feedback(
             messages, product, volume_data.get("TOTAL_CONVERSATIONS", 0)
         )
