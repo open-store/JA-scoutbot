@@ -264,9 +264,9 @@ def handle_dm(event, client):
     if event.get("bot_id") or event.get("subtype"):
         return
 
-    text = event.get("text", "").strip()
-    channel = event.get("channel")
-    thread_ts = event.get("ts")
+    raw_text = event.get("text", "").strip()
+    # Strip any @mention of the bot in case user typed it in DM
+    text = re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
     user = event.get("user", "unknown")
 
     if not text:
@@ -274,16 +274,26 @@ def handle_dm(event, client):
 
     logger.info(f"DM from {user}: '{text}'")
 
-    # Acknowledge immediately using client.chat_postMessage
-    # (say() does not work reliably in DM message event handlers)
+    # Use conversations.open to get a guaranteed-valid DM channel ID.
+    # The channel ID from the event can sometimes be stale or unrecognized
+    # by the bot token if the DM was opened before the app was reinstalled.
+    try:
+        open_resp = client.conversations_open(users=user)
+        dm_channel = open_resp["channel"]["id"]
+        logger.info(f"Opened DM channel for {user}: {dm_channel}")
+    except Exception as e:
+        logger.error(f"Failed to open DM channel for {user}: {e}")
+        dm_channel = event.get("channel")  # fallback to event channel
+
+    # Acknowledge immediately
     try:
         client.chat_postMessage(
-            channel=channel,
+            channel=dm_channel,
             text=":mag: Scout is on it...",
             mrkdwn=True,
         )
     except Exception as e:
-        logger.error(f"Failed to send DM ack to {channel}: {e}")
+        logger.error(f"Failed to send DM ack to {dm_channel}: {e}")
 
     def _run():
         try:
@@ -297,12 +307,12 @@ def handle_dm(event, client):
             )
         try:
             client.chat_postMessage(
-                channel=channel,
+                channel=dm_channel,
                 text=result,
                 mrkdwn=True,
             )
         except Exception as e:
-            logger.error(f"Failed to send DM result to {channel}: {e}")
+            logger.error(f"Failed to send DM result to {dm_channel}: {e}")
 
     run_in_background(_run)
 
