@@ -256,9 +256,9 @@ def handle_mention(event, say, client):
 # ---------------------------------------------------------------------------
 
 @app.event("message")
-def handle_dm(event, say, client):
+def handle_dm(event, client):
     """Handle direct messages to Scout."""
-    # Only handle DMs (channel_type == "im"), skip bot messages
+    # Only handle DMs (channel_type == "im"), skip bot messages and subtypes
     if event.get("channel_type") != "im":
         return
     if event.get("bot_id") or event.get("subtype"):
@@ -274,8 +274,16 @@ def handle_dm(event, say, client):
 
     logger.info(f"DM from {user}: '{text}'")
 
-    # Acknowledge immediately
-    say(text=":mag: Scout is on it...", thread_ts=thread_ts)
+    # Acknowledge immediately using client.chat_postMessage
+    # (say() does not work reliably in DM message event handlers)
+    try:
+        client.chat_postMessage(
+            channel=channel,
+            text=":mag: Scout is on it...",
+            mrkdwn=True,
+        )
+    except Exception as e:
+        logger.error(f"Failed to send DM ack to {channel}: {e}")
 
     def _run():
         try:
@@ -287,12 +295,14 @@ def handle_dm(event, say, client):
                 f"Error: `{str(e)[:300]}`\n"
                 "Try `/scout-help` for available commands."
             )
-        client.chat_postMessage(
-            channel=channel,
-            text=result,
-            thread_ts=thread_ts,
-            mrkdwn=True,
-        )
+        try:
+            client.chat_postMessage(
+                channel=channel,
+                text=result,
+                mrkdwn=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to send DM result to {channel}: {e}")
 
     run_in_background(_run)
 
