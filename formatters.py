@@ -190,7 +190,10 @@ def format_voc(data: dict) -> str:
         pf_summary = product_feedback.get("summary", "")
         pf_themes = product_feedback.get("themes", [])
         pf_count = product_feedback.get("sample_count", 0)
+        pf_low_sample = product_feedback.get("low_sample", False)
         lines.append(f"*:mag: What customers are saying* (synthesized from {pf_count} messages)")
+        if pf_low_sample:
+            lines.append(f"_:warning: Low sample size ({pf_count} messages). Results are directional — try a longer timeframe (e.g. L180) for more data._")
         if pf_summary:
             lines.append(f"_{pf_summary}_")
             lines.append("")
@@ -205,7 +208,7 @@ def format_voc(data: dict) -> str:
         lines.append("")
     elif product_feedback is not None:
         lines.append("*:mag: What customers are saying*")
-        lines.append("_No customer messages found for this product in this period._")
+        lines.append("_No substantive customer messages found for this product in this period. Auto-replies and marketing noise have been excluded. Try a longer timeframe (e.g. L180)._")
         lines.append("")
 
     # Status breakdown
