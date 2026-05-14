@@ -257,7 +257,7 @@ def handle_mention(event, say, client):
 
 @app.event("message")
 def handle_dm(event, client):
-    """Handle direct messages to Scout."""
+    """Handle direct messages to Scout — only responds to @mentions in DMs."""
     # Only handle DMs (channel_type == "im"), skip bot messages and subtypes
     if event.get("channel_type") != "im":
         return
@@ -265,27 +265,28 @@ def handle_dm(event, client):
         return
 
     raw_text = event.get("text", "").strip()
-    # Strip any @mention of the bot in case user typed it in DM
-    text = re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
     user = event.get("user", "unknown")
+
+    # Only respond if the message contains an @mention of the bot.
+    # This prevents Scout from responding to every message in the DM thread.
+    bot_mention_pattern = re.compile(r"<@[A-Z0-9]+>")
+    if not bot_mention_pattern.search(raw_text):
+        logger.debug(f"DM from {user} ignored (no @mention): '{raw_text[:60]}'")
+        return
+
+    # Strip the @mention to get the clean query text
+    text = bot_mention_pattern.sub("", raw_text).strip()
 
     if not text:
         return
 
-    logger.info(f"DM from {user}: '{text}'")
+    # Use the channel from the event directly — this is the correct DM channel
+    # where the user sent the message, and where Scout should reply.
+    dm_channel = event.get("channel")
 
-    # Use conversations.open to get a guaranteed-valid DM channel ID.
-    # The channel ID from the event can sometimes be stale or unrecognized
-    # by the bot token if the DM was opened before the app was reinstalled.
-    try:
-        open_resp = client.conversations_open(users=user)
-        dm_channel = open_resp["channel"]["id"]
-        logger.info(f"Opened DM channel for {user}: {dm_channel}")
-    except Exception as e:
-        logger.error(f"Failed to open DM channel for {user}: {e}")
-        dm_channel = event.get("channel")  # fallback to event channel
+    logger.info(f"DM @mention from {user} in {dm_channel}: '{text}'")
 
-    # Acknowledge immediately
+    # Acknowledge immediately in the same DM channel
     try:
         client.chat_postMessage(
             channel=dm_channel,
