@@ -187,28 +187,48 @@ def format_voc(data: dict) -> str:
     # Product feedback synthesis (only when product filter is active)
     product_feedback = data.get("product_feedback")
     if product_feedback and product_feedback.get("sample_count", 0) > 0:
-        pf_summary = product_feedback.get("summary", "")
+        pf_headline = product_feedback.get("headline", "")
         pf_themes = product_feedback.get("themes", [])
         pf_count = product_feedback.get("sample_count", 0)
+        pf_convos = product_feedback.get("total_conversations", 0)
         pf_low_sample = product_feedback.get("low_sample", False)
-        lines.append(f"*:mag: What customers are saying* (synthesized from {pf_count} messages)")
+        pf_caveats = product_feedback.get("caveats", [])
+
+        lines.append(f"*:mag: What customers are saying*")
+        if pf_headline:
+            lines.append(f"_{pf_headline}_")
+        lines.append("")
+        lines.append(f"• *Sample:* {pf_count} customer messages from {pf_convos} product-related tickets")
+        lines.append(f"• *Timeframe:* Last {days} complete days")
+        lines.append(f"• *Source:* {product_feedback.get('source', 'Richpanel tickets via Snowflake')}")
+        lines.append("")
+
         if pf_low_sample:
             lines.append(f"_:warning: Low sample size ({pf_count} messages). Results are directional — try a longer timeframe (e.g. L180) for more data._")
-        if pf_summary:
-            lines.append(f"_{pf_summary}_")
             lines.append("")
+
         if pf_themes:
+            lines.append("*Top themes*")
             for theme in pf_themes:
-                name = theme.get("theme", "")
-                count = theme.get("count", "")
-                example = theme.get("example", "")
+                label = theme.get("label", "")
+                count = theme.get("mention_count", "")
+                quote = theme.get("representative_quote", "")
                 count_str = f" — {count} mentions" if count else ""
-                example_str = f" \"_{example}_\"" if example else ""
-                lines.append(f"• *{name}*{count_str}{example_str}")
-        lines.append("")
+                quote_str = f"  \"_{quote}_\"" if quote else ""
+                lines.append(f"• *{label}*{count_str}{quote_str}")
+            lines.append("")
+
+        if pf_caveats:
+            for caveat in pf_caveats:
+                lines.append(f"_{caveat}_")
+            lines.append("")
     elif product_feedback is not None:
         lines.append("*:mag: What customers are saying*")
-        lines.append("_No substantive customer messages found for this product in this period. Auto-replies and marketing noise have been excluded. Try a longer timeframe (e.g. L180)._")
+        pf_headline = product_feedback.get("headline", "")
+        if pf_headline:
+            lines.append(f"_{pf_headline}_")
+        else:
+            lines.append("_No substantive customer messages found for this product in this period. Auto-replies and marketing noise have been excluded. Try a longer timeframe (e.g. L180)._")
         lines.append("")
 
     # Status breakdown
@@ -223,8 +243,8 @@ def format_voc(data: dict) -> str:
 
     # So what
     lines.append("*So what*")
-    if product_feedback and product_feedback.get("summary"):
-        lines.append(f"• {product_feedback['summary']}")
+    if product_feedback and product_feedback.get("so_what"):
+        lines.append(f"• {product_feedback['so_what']}")
     elif top_theme:
         lines.append(f"• The dominant customer contact theme is *{top_theme}*, representing the largest share of tagged conversations.")
     if vol_change:
@@ -233,8 +253,10 @@ def format_voc(data: dict) -> str:
 
     # Recommended action
     lines.append("*Recommended action*")
-    if product_feedback and product_feedback.get("themes"):
-        top_pf_theme = product_feedback["themes"][0].get("theme", "")
+    if product_feedback and product_feedback.get("recommended_action"):
+        lines.append(f"• {product_feedback['recommended_action']}")
+    elif product_feedback and product_feedback.get("themes"):
+        top_pf_theme = product_feedback["themes"][0].get("label", "")
         lines.append(f"• *Product:* Top customer feedback theme is *{top_pf_theme}* — consider for V2 design decisions.")
     elif top_theme:
         lines.append(f"• *CX + Ops:* Prioritize review of `{top_theme}` conversations for macro/process improvements.")
