@@ -57,3 +57,4 @@ class ProductFeedbackResult:
     recommended_action: str = ""
     caveats: List[str] = field(default_factory=list)
     source: str = "Richpanel tickets via Snowflake"
+    candidate_conversation_ids: List[str] = field(default_factory=list)

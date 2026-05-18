@@ -281,4 +281,5 @@ def run_product_feedback_pipeline(
         so_what=synthesis.get("so_what", ""),
         recommended_action=synthesis.get("recommended_action", ""),
         caveats=caveats,
+        candidate_conversation_ids=conversation_ids,
     )

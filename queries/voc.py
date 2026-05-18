@@ -2,12 +2,14 @@
 Scout VOC Query Module
 Generates and executes Voice of Customer queries against Snowflake.
 Uses the Richpanel tag mapping for deterministic theme classification.
-Supports optional filters: product (subject keyword), tag (name or UUID), channel, agent.
+Supports optional filters: product (tag+body pipeline), tag (name or UUID), channel, agent.
 
 Overhaul (May 2026):
 - Auto-reply exclusion applied globally to all VOC queries
-- Product matching broadened to first keyword (e.g. "clubhouse" matches "Clubhouse Performance Polo")
-- Product feedback now uses the new pipeline (tag-scoped + message-body evidence)
+- Product filter now uses the new tag+body pipeline (product_feedback_service)
+  The pipeline's candidate conversation IDs are used to filter ALL aggregate queries
+  (volume, channel, tags, status) so results are fully consistent with synthesis.
+- Subject-line product matching is removed; it was the root cause of 0-result product queries.
 """
 
 from command_parser import ParsedCommand
@@ -24,53 +26,42 @@ _AUTOREPLY_EXCLUSION = """
       AND LOWER(SUBJECT) NOT LIKE '%out of office%'
       AND LOWER(SUBJECT) NOT LIKE '%vacation%'
       AND LOWER(SUBJECT) NOT LIKE '%away from the office%'
-      AND LOWER(SUBJECT) NOT LIKE '%be back%'
       AND LOWER(SUBJECT) NOT LIKE '%unsubscribe%'
 """
 
 
-def _extract_product_keyword(product: str) -> str:
+def _build_filter_clause(cmd: ParsedCommand, pipeline_ids: list = None) -> tuple[str, str]:
     """
-    Extract the primary search keyword from a product name.
-    For multi-word products, uses the first meaningful word (3+ chars).
-    E.g. "Clubhouse polo" -> "clubhouse", "Anytime Crewneck" -> "anytime"
-    Falls back to the full product string if no single keyword found.
-    """
-    words = product.strip().split()
-    for word in words:
-        clean = word.strip("\"'").lower()
-        if len(clean) >= 3:
-            return clean
-    return product.lower()
+    Build additional WHERE clause fragments and a human-readable filter label.
 
+    When a product filter is active and the pipeline has returned conversation IDs,
+    we filter by those IDs directly (no subject-line matching).
+    For all other filters (channel, tag, agent), we use column predicates as before.
 
-def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str, str]:
-    """
-    Build additional WHERE clause fragments and a human-readable filter label
-    from the parsed command's filters dict.
-    Returns (sql_fragment, label_string, product_keyword).
-    product_keyword is the broadened keyword used for subject matching (empty if no product filter).
+    Returns (sql_fragment, label_string).
     """
     clauses = []
     labels = []
-    product_keyword = ""
 
-    product = cmd.filters.get("product")
+    product = cmd.filters.get("product") if cmd.filters else None
     if product:
-        product_keyword = _extract_product_keyword(product)
-        safe = product_keyword.replace("'", "''")
-        clauses.append(f"AND LOWER(SUBJECT) LIKE '%{safe}%'")
         labels.append(f"product: {product}")
+        if pipeline_ids:
+            # Use the authoritative conversation IDs from the pipeline
+            id_list = ", ".join(f"'{cid.replace(chr(39), '')}'" for cid in pipeline_ids)
+            clauses.append(f"AND ID IN ({id_list})")
+        else:
+            # Pipeline returned nothing — no results will be found (correct behaviour)
+            clauses.append("AND 1=0")
 
-    channel = cmd.filters.get("channel")
+    channel = cmd.filters.get("channel") if cmd.filters else None
     if channel:
         safe = channel.replace("'", "''")
         clauses.append(f"AND LOWER(CHANNEL) = '{safe.lower()}'")
         labels.append(f"channel: {channel}")
 
-    tag = cmd.filters.get("tag")
+    tag = cmd.filters.get("tag") if cmd.filters else None
     if tag:
-        # Support filtering by tag name (resolve to UUIDs) or by UUID directly
         matching_uuids = [
             uuid for uuid, name in TAG_ID_TO_NAME.items()
             if tag.lower() in name.lower()
@@ -82,18 +73,17 @@ def _build_filter_clause(cmd: ParsedCommand) -> tuple[str, str, str]:
                 f"WHERE ft.value::STRING IN ({uuid_list}))"
             )
         else:
-            # Assume it's a raw UUID or partial UUID
             safe = tag.replace("'", "''")
             clauses.append(f"AND LOWER(TAGS::STRING) LIKE '%{safe.lower()}%'")
         labels.append(f"tag: {tag}")
 
-    agent = cmd.filters.get("agent")
+    agent = cmd.filters.get("agent") if cmd.filters else None
     if agent:
         safe = agent.replace("'", "''")
         clauses.append(f"AND LOWER(ASSIGNED_AGENT_ID::STRING) LIKE '%{safe.lower()}%'")
         labels.append(f"agent: {agent}")
 
-    return "\n    ".join(clauses), ", ".join(labels) if labels else "", product_keyword
+    return "\n    ".join(clauses), ", ".join(labels) if labels else ""
 
 
 # Tags that represent system processes, automation, or noise — not customer intent
@@ -128,7 +118,12 @@ def run_voc(cmd: ParsedCommand) -> dict:
     """
     Execute VOC analysis for the given command.
     Returns a dict with all the data needed for formatting.
-    Uses tag mapping for theme classification instead of subject-line keywords.
+
+    When a product filter is active:
+      1. Run the product feedback pipeline first to get candidate conversation IDs
+      2. Use those IDs to filter ALL aggregate queries (volume, channel, tags, status)
+      This ensures the headline metrics and the synthesis are always consistent.
+
     Auto-replies and marketing noise are excluded from all queries.
     """
     start = cmd.start_date.strftime("%Y-%m-%d %H:%M:%S")
@@ -136,7 +131,20 @@ def run_voc(cmd: ParsedCommand) -> dict:
     prev_start = cmd.previous_start_date.strftime("%Y-%m-%d %H:%M:%S")
     prev_end = cmd.previous_end_date.strftime("%Y-%m-%d %H:%M:%S")
 
-    filter_sql, filter_label, product_keyword = _build_filter_clause(cmd)
+    product = cmd.filters.get("product") if cmd.filters else None
+
+    # --- Run product feedback pipeline first (if product filter active) ---
+    # This gives us the authoritative conversation IDs to use in all other queries.
+    product_feedback = None
+    pipeline_ids = None
+    if product:
+        product_feedback = get_product_feedback(
+            product_name=product,
+            timeframe_days=cmd.days,
+        )
+        pipeline_ids = product_feedback.get("candidate_conversation_ids") or []
+
+    filter_sql, filter_label = _build_filter_clause(cmd, pipeline_ids=pipeline_ids)
 
     # --- Current period volume ---
     volume_sql = f"""
@@ -152,7 +160,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
-    {_AUTOREPLY_EXCLUSION}
+    {_AUTOREPLY_EXCLUSION if not product else ""}
     {filter_sql}
     """
     volume = execute_query_dict(volume_sql)
@@ -166,7 +174,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{prev_start}'
       AND CREATED_AT < '{prev_end}'
-    {_AUTOREPLY_EXCLUSION}
+    {_AUTOREPLY_EXCLUSION if not product else ""}
     {filter_sql}
     """
     prev_volume = execute_query_dict(prev_volume_sql)
@@ -181,14 +189,14 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
-    {_AUTOREPLY_EXCLUSION}
+    {_AUTOREPLY_EXCLUSION if not product else ""}
     {filter_sql}
     GROUP BY CHANNEL
     ORDER BY cnt DESC
     """
     channel_data = execute_query_dict(channel_sql)
 
-    # --- Tag frequency (current period) — the primary theme source ---
+    # --- Tag frequency (current period) ---
     tag_sql = f"""
     SELECT
         f.value::STRING AS tag_uuid,
@@ -199,7 +207,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
       AND TAGS IS NOT NULL
-    {_AUTOREPLY_EXCLUSION}
+    {_AUTOREPLY_EXCLUSION if not product else ""}
     {filter_sql}
     GROUP BY tag_uuid
     ORDER BY cnt DESC
@@ -218,7 +226,7 @@ def run_voc(cmd: ParsedCommand) -> dict:
       AND CREATED_AT >= '{prev_start}'
       AND CREATED_AT < '{prev_end}'
       AND TAGS IS NOT NULL
-    {_AUTOREPLY_EXCLUSION}
+    {_AUTOREPLY_EXCLUSION if not product else ""}
     {filter_sql}
     GROUP BY tag_uuid
     ORDER BY cnt DESC
@@ -239,21 +247,12 @@ def run_voc(cmd: ParsedCommand) -> dict:
     WHERE _FIVETRAN_DELETED = FALSE
       AND CREATED_AT >= '{start}'
       AND CREATED_AT < '{end}'
-    {_AUTOREPLY_EXCLUSION}
+    {_AUTOREPLY_EXCLUSION if not product else ""}
     {filter_sql}
     GROUP BY STATUS
     ORDER BY cnt DESC
     """
     status_data = execute_query_dict(status_sql)
-
-    # --- Product feedback synthesis (only when product filter is active) ---
-    product_feedback = None
-    product = cmd.filters.get("product") if cmd.filters else None
-    if product:
-        product_feedback = get_product_feedback(
-            product_name=product,
-            timeframe_days=cmd.days,
-        )
 
     return {
         "volume": volume_data,

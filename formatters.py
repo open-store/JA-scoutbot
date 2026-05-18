@@ -121,6 +121,13 @@ def format_voc(data: dict) -> str:
     prev_total = prev_volume.get("TOTAL_CONVERSATIONS", 0)
     csat_pct = volume.get("CSAT_PCT")
     filter_label = data.get("filter_label", "")
+    product_feedback = data.get("product_feedback")
+
+    # When a product filter is active and the new pipeline found conversations,
+    # use the pipeline count as the authoritative total — the subject-line query
+    # may return 0 even when the tag+body pipeline finds real data.
+    if total == 0 and product_feedback and product_feedback.get("total_conversations", 0) > 0:
+        total = product_feedback["total_conversations"]
 
     if total == 0:
         filter_note = f" (filtered by {filter_label})" if filter_label else ""
@@ -185,7 +192,6 @@ def format_voc(data: dict) -> str:
         lines.append("")
 
     # Product feedback synthesis (only when product filter is active)
-    product_feedback = data.get("product_feedback")
     if product_feedback and product_feedback.get("sample_count", 0) > 0:
         pf_headline = product_feedback.get("headline", "")
         pf_themes = product_feedback.get("themes", [])
