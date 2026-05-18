@@ -7,13 +7,13 @@ Supports optional filters: product (subject keyword), tag (name or UUID), channe
 Overhaul (May 2026):
 - Auto-reply exclusion applied globally to all VOC queries
 - Product matching broadened to first keyword (e.g. "clubhouse" matches "Clubhouse Performance Polo")
-- Low-sample caveat flag added for product queries with < 5 real messages
+- Product feedback now uses the new pipeline (tag-scoped + message-body evidence)
 """
 
 from command_parser import ParsedCommand
 from snowflake_client import execute_query_dict
 from tag_mapping import TAG_ID_TO_NAME
-from product_feedback import get_product_messages, synthesize_product_feedback
+from product_feedback import get_product_feedback
 
 
 # SQL fragment to exclude auto-replies and marketing noise from all VOC queries
@@ -250,11 +250,9 @@ def run_voc(cmd: ParsedCommand) -> dict:
     product_feedback = None
     product = cmd.filters.get("product") if cmd.filters else None
     if product:
-        messages = get_product_messages(
-            product_keyword, start, end, execute_query_dict
-        )
-        product_feedback = synthesize_product_feedback(
-            messages, product, volume_data.get("TOTAL_CONVERSATIONS", 0)
+        product_feedback = get_product_feedback(
+            product_name=product,
+            timeframe_days=cmd.days,
         )
 
     return {
