@@ -109,12 +109,13 @@ def resolve_aliases(product_name: str) -> List[str]:
 
 
 def canonical_name(product_name: str) -> str:
-    """Return the canonical product name, or the normalised input if unknown."""
+    """Return the canonical product name (title-cased), or the title-cased
+    normalised input if unknown."""
     key = normalise(product_name)
     if key in PRODUCT_ALIASES:
-        return key
+        return key.title()
     canon = _ALIAS_TO_CANONICAL.get(key)
-    return canon if canon else key
+    return canon.title() if canon else key.title()
 
 
 def register_aliases(canonical: str, aliases: FrozenSet[str]) -> None:
