@@ -81,4 +81,5 @@ def get_product_feedback(
         "low_sample": result.total_messages_analysed < min_sample_size,
         "caveats": result.caveats,
         "source": result.source,
+        "candidate_conversation_ids": result.candidate_conversation_ids,
     }
