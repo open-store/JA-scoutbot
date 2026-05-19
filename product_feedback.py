@@ -1,69 +1,45 @@
 """
-Scout Product Feedback — thin wrapper.
+product_feedback.py — thin wrapper (legacy entry point).
 
-This module is the public API called by ``queries/voc.py``.
-It delegates to the new pipeline (scout.services.product_feedback_service)
-and converts the typed result back into the dict shape that ``formatters.py``
-already expects.
+This module exists for backward compatibility only.
+New code should use scout/services/voc_service.py for product VOC queries,
+which calls get_candidate_scope() and get_product_feedback_for_scope() directly.
 
-The old subject-line-only retrieval is fully replaced.
+This wrapper delegates to run_product_feedback_pipeline() which internally
+calls both steps. It is kept so any callers that haven't migrated yet
+continue to work without changes.
 """
 from __future__ import annotations
 
-import logging
-from typing import Any, Dict, List, Optional
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from scout.models.product_feedback import ProductFeedbackRequest
 from scout.services.product_feedback_service import run_product_feedback_pipeline
 
-logger = logging.getLogger("scout.product_feedback")
-
 
 def get_product_feedback(
     product_name: str,
-    timeframe_days: int,
-    *,
-    product_aliases: Optional[List[str]] = None,
-    min_sample_size: int = 5,
-    max_messages: int = 200,
-) -> Dict[str, Any]:
-    """Run the product-feedback pipeline and return a formatter-ready dict.
+    timeframe_days: int = 30,
+) -> dict:
+    """Run the full product-feedback pipeline and return a dict for the formatter.
 
-    This is the only public function that ``voc.py`` should call.
-
-    Returns a dict with keys matching the new formatter contract:
-        headline, themes, so_what, recommended_action,
-        sample_count, total_conversations, retrieval_mode,
-        low_sample, caveats, source.
+    Deprecated: prefer voc_service.run_voc_query() for product VOC queries.
     """
     request = ProductFeedbackRequest(
         product_name=product_name,
         timeframe_days=timeframe_days,
-        tag_groups=("product_feedback",),
-        product_aliases=tuple(product_aliases) if product_aliases else (),
-        min_sample_size=min_sample_size,
-        max_messages=max_messages,
     )
+    result = run_product_feedback_pipeline(request)
 
-    try:
-        result = run_product_feedback_pipeline(request)
-    except Exception as e:
-        logger.error("Product feedback pipeline failed: %s", e, exc_info=True)
-        return {
-            "headline": f"Product feedback unavailable ({type(e).__name__}).",
-            "themes": [],
-            "so_what": "The pipeline encountered an error. Raw VOC data is still shown above.",
-            "recommended_action": "Retry or review tickets manually.",
-            "sample_count": 0,
-            "total_conversations": 0,
-            "retrieval_mode": "error",
-            "low_sample": True,
-            "caveats": [f"Pipeline error: {e}"],
-            "source": "Richpanel tickets via Snowflake",
-        }
-
-    # Convert typed result → dict for formatters.py
     return {
+        "product_name": result.product_name,
+        "timeframe_label": result.timeframe_label,
+        "total_conversations": result.total_candidate_conversations,
+        "total_messages": result.total_messages_analysed,
+        "retrieval_mode": result.retrieval_mode,
         "headline": result.headline,
         "themes": [
             {
@@ -75,11 +51,6 @@ def get_product_feedback(
         ],
         "so_what": result.so_what,
         "recommended_action": result.recommended_action,
-        "sample_count": result.total_messages_analysed,
-        "total_conversations": result.total_candidate_conversations,
-        "retrieval_mode": result.retrieval_mode,
-        "low_sample": result.total_messages_analysed < min_sample_size,
         "caveats": result.caveats,
-        "source": result.source,
         "candidate_conversation_ids": result.candidate_conversation_ids,
     }

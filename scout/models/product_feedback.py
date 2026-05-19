@@ -2,6 +2,13 @@
 Typed models for the product-feedback pipeline.
 
 These are pure data containers with no business logic.
+
+Models:
+  ProductFeedbackRequest  — inbound request
+  ProductFeedbackScope    — candidate conversation scope (IDs + metadata)
+  ProductFeedbackTheme    — a single synthesised theme
+  ProductFeedbackEvidence — a cleaned customer message
+  ProductFeedbackResult   — full pipeline output
 """
 from __future__ import annotations
 
@@ -19,6 +26,32 @@ class ProductFeedbackRequest:
     product_aliases: tuple[str, ...] = ()
     min_sample_size: int = 5
     max_messages: int = 200
+
+
+@dataclass(frozen=True)
+class ProductFeedbackScope:
+    """Candidate conversation scope produced by scope-discovery step.
+
+    This is the authoritative set of conversation IDs that should be used
+    for ALL downstream queries (VOC aggregation, message fetching, synthesis).
+    Passing this scope into voc.py ensures metrics and synthesis are consistent.
+    """
+
+    product_name: str
+    conversation_ids: List[str]
+    aliases_used: List[str]
+    tag_groups_used: List[str]
+    retrieval_mode: str  # "strict", "fallback_relaxed", "fallback_body_only", "empty"
+    timeframe_days: int
+    caveats: List[str] = field(default_factory=list)
+
+    @property
+    def is_empty(self) -> bool:
+        return len(self.conversation_ids) == 0
+
+    @property
+    def total_conversations(self) -> int:
+        return len(self.conversation_ids)
 
 
 @dataclass(frozen=True)
