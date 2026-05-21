@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from command_parser import parse_command
 from formatters import format_csat, format_voc, format_errors, format_help, format_not_available, format_nps, format_reviews, format_returns
 from queries.csat import run_csat
-from queries.voc import run_voc
+from scout.services.voc_service import run_voc_query
 from queries.errors import run_errors
 from queries.nps import run_nps
 from queries.reviews import run_reviews
@@ -62,7 +62,7 @@ def execute_scout_command(raw_input: str) -> str:
         return format_csat(data)
 
     if cmd.command == "voc":
-        data = run_voc(cmd)
+        data = run_voc_query(cmd)
         return format_voc(data)
 
     if cmd.command == "errors":
