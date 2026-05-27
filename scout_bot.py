@@ -257,7 +257,7 @@ def handle_mention(event, say, client):
 
 @app.event("message")
 def handle_dm(event, client):
-    """Handle direct messages to Scout — only responds to @mentions in DMs."""
+    """Handle direct messages to Scout — responds to all messages in the DM thread."""
     # Only handle DMs (channel_type == "im"), skip bot messages and subtypes
     if event.get("channel_type") != "im":
         return
@@ -267,15 +267,10 @@ def handle_dm(event, client):
     raw_text = event.get("text", "").strip()
     user = event.get("user", "unknown")
 
-    # Only respond if the message contains an @mention of the bot.
-    # This prevents Scout from responding to every message in the DM thread.
-    bot_mention_pattern = re.compile(r"<@[A-Z0-9]+>")
-    if not bot_mention_pattern.search(raw_text):
-        logger.debug(f"DM from {user} ignored (no @mention): '{raw_text[:60]}'")
-        return
-
-    # Strip the @mention to get the clean query text
-    text = bot_mention_pattern.sub("", raw_text).strip()
+    # In a DM thread with Scout, every message is already directed at the bot —
+    # no @mention required. Strip any accidental @mention tags if present,
+    # then treat the remaining text as the query.
+    text = re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
 
     if not text:
         return
@@ -284,7 +279,7 @@ def handle_dm(event, client):
     # where the user sent the message, and where Scout should reply.
     dm_channel = event.get("channel")
 
-    logger.info(f"DM @mention from {user} in {dm_channel}: '{text}'")
+    logger.info(f"DM from {user} in {dm_channel}: '{text}'")
 
     # Acknowledge immediately in the same DM channel
     try:
