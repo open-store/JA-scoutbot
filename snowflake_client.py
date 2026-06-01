@@ -10,8 +10,8 @@ from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from typing import Any
 
-# Load .env if present (local dev); Railway injects env vars directly
-load_dotenv("/home/ubuntu/scout/.env")
+# Load .env if present (local dev); Cloud Run/Railway inject env vars directly
+load_dotenv()  # no-op in production; loads .env in local dev
 
 
 def _get_private_key() -> bytes:

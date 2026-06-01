@@ -10,6 +10,7 @@ import sys
 import re
 import logging
 import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
 from dotenv import load_dotenv
 from slack_bolt import App
@@ -28,7 +29,7 @@ from queries.reviews import run_reviews
 from queries.returns import run_returns
 from nl_router import route_natural_language, build_command_from_routing
 
-load_dotenv("/home/ubuntu/scout/.env")
+load_dotenv()  # no-op in Cloud Run/Railway; loads .env in local dev
 
 logging.basicConfig(
     level=logging.INFO,
@@ -314,10 +315,36 @@ def handle_dm(event, client):
 
 
 # ---------------------------------------------------------------------------
+# Health check server (required by Cloud Run startup probe)
+# ---------------------------------------------------------------------------
+
+class HealthHandler(BaseHTTPRequestHandler):
+    """Minimal HTTP server so Cloud Run's startup probe gets a 200 OK."""
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, format, *args):  # suppress access logs
+        pass
+
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthHandler)
+    logger.info(f"Health check server listening on port {port}")
+    server.serve_forever()
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    # Start health check HTTP server in background (required for Cloud Run)
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+
     logger.info("Starting Scout in Socket Mode...")
     handler = SocketModeHandler(app, os.environ["SLACK_APP_TOKEN"])
     handler.start()
