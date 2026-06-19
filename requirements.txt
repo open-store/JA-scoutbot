@@ -1,5 +1,5 @@
 certifi==2026.2.25
-cryptography==46.0.7
+cryptography==48.0.1
 httpx==0.28.1
 openai==2.32.0
 python-dotenv==1.2.2
