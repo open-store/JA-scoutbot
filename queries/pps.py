@@ -88,14 +88,14 @@ _CHANNEL_MAP = {
     "youtube video": "YouTube",
     "youtube review": "YouTube",
     # Social Media (platform-unspecified)
-    "social media": "Social Media",
-    "social media (instagram, tiktok, facebook, twitter.)": "Social Media",
-    "socials": "Social Media",
-    "social media ads": "Social Media",
-    "scrolling": "Social Media",
-    "twitter": "Social Media",
-    "x": "Social Media",
-    "pinterest": "Social Media",
+    "social media": "Social Media (Instagram, TikTok, Facebook, Twitter)",
+    "social media (instagram, tiktok, facebook, twitter.)": "Social Media (Instagram, TikTok, Facebook, Twitter)",
+    "socials": "Social Media (Instagram, TikTok, Facebook, Twitter)",
+    "social media ads": "Social Media (Instagram, TikTok, Facebook, Twitter)",
+    "scrolling": "Social Media (Instagram, TikTok, Facebook, Twitter)",
+    "twitter": "Social Media (Instagram, TikTok, Facebook, Twitter)",
+    "x": "Social Media (Instagram, TikTok, Facebook, Twitter)",
+    "pinterest": "Social Media (Instagram, TikTok, Facebook, Twitter)",
     # Search / Google variants
     "search engine (google, bing, etc.)": "Search Engine",
     "google": "Search Engine",
@@ -169,7 +169,7 @@ _CHANNEL_MAP = {
 # Canonical channels shown in the main how_heard distribution.
 # Anything not in this set is treated as a write-in and routed to Other breakdown.
 CANONICAL_CHANNELS = {
-    "Instagram", "Facebook", "TikTok", "YouTube", "Social Media",
+    "Instagram", "Facebook", "TikTok", "YouTube", "Social Media (Instagram, TikTok, Facebook, Twitter)",
     "Search Engine", "Word of Mouth / Referral", "Influencer / Blog",
     "Podcast", "TV / Traditional Media", "Direct Mail", "Email / SMS",
     "AI Discovery", "Other",
