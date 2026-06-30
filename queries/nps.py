@@ -1,231 +1,374 @@
-"""KnoCommerce NPS integration — direct API calls."""
+"""
+NPS query module — fetches NPS scores per survey from Snowflake
+and classifies open-text responses against the validated theme taxonomy.
+
+Schema: ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_
+Tables: SURVEY, SURVEY_QUESTION, RESPONSE, RESPONSE_ANSWER
+
+Key notes:
+- COMPLETED_AT is NULL for many recent responses; use CREATED_AT for time filtering.
+- VALUE column is VARIANT; scalar answers are JSON-encoded strings e.g. "10".
+- NPS questions are TYPE='NPS' with LABEL containing 'recommend'.
+- Open-text answers are TYPE IN ('Text', 'TextArea').
+- Surveys are kept separate — never aggregate NPS across surveys.
+"""
 
 import os
-import base64
-import urllib.parse
-import requests
-from datetime import datetime, timedelta
+import sys
+import json
+from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from snowflake_client import get_connection
+
+DB = "ANALYTICS"
+SCHEMA = "KNOCOMMERCE__NPS___SURVEYS_"
+
+# Target survey IDs (live surveys only)
+SURVEY_IDS = {
+    "NPS Survey": "61e08ea9-7cb0-4e81-aea5-39c0cf0d7e84",
+    "NPS Survey Copy": "e69d0c24-ad9c-449b-bf31-4f10867eb06d",
+    "Returning Customer PPS": "81361b00-a8c6-4957-a632-838e133dace1",
+    "PPS - New Customers": "1dd68a35-2c53-4822-9068-04dd7678d990",
+}
+
+# NPS-bearing surveys (have a "recommend" NPS question)
+NPS_SURVEYS = ["NPS Survey", "NPS Survey Copy", "Returning Customer PPS", "PPS - New Customers"]
+
+# Display names for output — NPS Survey + Copy are merged under one name
+DISPLAY_NAMES = {
+    "NPS Survey": "NPS Survey",
+    "NPS Survey Copy": "NPS Survey",
+    "Returning Customer PPS": "Returning Customer PPS",
+    "PPS - New Customers": "New Customer PPS",
+}
+
+# Validated theme taxonomy from YTD NPS analysis (Mar-Jun 2026)
+COMPLAINT_THEMES = [
+    "Returns / exchange friction",
+    "Delivery delay / order not received",
+    "Wrong item / size shipped",
+    "Fit: too slim / tight",
+    "Fit: too baggy / loose",
+    "Sizing inconsistency / size chart",
+    "Wrinkles / creases",
+    "Quality / material / defect",
+    "CS unresponsive / slow",
+    "Out of stock / inventory",
+    "Pocket / design feature",
+    "Price / promo / value",
+    "Website / portal issues",
+    "Email marketing volume",
+    "Shipping cost",
+    "Carrier complaints",
+    "Survey timing",
+]
+
+POSITIVE_THEMES = [
+    "Product praise",
+    "CS praise",
+    "Fit / sizing praise",
+    "Fast delivery",
+    "Easy shopping experience",
+]
 
 
-# ── Auth ────────────────────────────────────────────────────────────
-_TOKEN_CACHE: dict = {"token": None, "expires": 0}
-
-KNO_BASE = "https://app-api.knocommerce.com"
+def fqn(table):
+    return f'"{DB}"."{SCHEMA}"."{table}"'
 
 
-def _get_token() -> str:
-    """Obtain or reuse an OAuth 2.0 Bearer token."""
-    import time
-
-    now = time.time()
-    if _TOKEN_CACHE["token"] and now < _TOKEN_CACHE["expires"] - 60:
-        return _TOKEN_CACHE["token"]
-
-    client_id = os.environ["KNOCOMMERCE_CLIENT_ID"]
-    client_secret = os.environ["KNOCOMMERCE_SECRET"]
-
-    creds = f"{urllib.parse.quote(client_id, safe='')}:{urllib.parse.quote(client_secret, safe='')}"
-    basic = base64.b64encode(creds.encode()).decode()
-
-    resp = requests.post(
-        f"{KNO_BASE}/api/oauth2/token",
-        headers={
-            "Authorization": f"Basic {basic}",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-        data="grant_type=client_credentials&scope=SURVEYS+RESPONSES",
-        timeout=15,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    _TOKEN_CACHE["token"] = data["access_token"]
-    _TOKEN_CACHE["expires"] = now + data.get("expires_in", 3600)
-    return _TOKEN_CACHE["token"]
+def _date_range(days: int):
+    """Return (start_date, end_date) strings for the last N days."""
+    end = datetime.now(timezone.utc)
+    start = end - timedelta(days=days)
+    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
-def _api_get(path: str, params: dict | None = None) -> dict:
-    """Authenticated GET against the KnoCommerce API."""
-    token = _get_token()
-    resp = requests.get(
-        f"{KNO_BASE}{path}",
-        headers={"Authorization": f"Bearer {token}"},
-        params=params or {},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
-
-# ── Surveys discovery ───────────────────────────────────────────────
-
-def list_surveys() -> list[dict]:
-    """Return all surveys from KnoCommerce."""
-    return _api_get("/api/rest/surveys")
-
-
-# ── Response fetching ───────────────────────────────────────────────
-
-def _fetch_responses(
-    days: int,
-    survey_id: str | None = None,
-    question_id: str | None = None,
-    max_pages: int = 20,
-) -> list[dict]:
-    """Fetch completed responses within the last *days* days.
-
-    Uses cursor pagination, up to *max_pages* pages of 250 each.
+def get_nps_scores(days: int = 30) -> dict:
     """
-    since = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
-    params: dict = {
-        "maxPageSize": 250,
-        "status": "completed",
-        "completedAt[gte]": since,
-    }
-    if survey_id:
-        params["surveyId"] = survey_id
-    if question_id:
-        params["questionId"] = question_id
-
-    all_results: list[dict] = []
-    for _ in range(max_pages):
-        data = _api_get("/api/rest/responses", params)
-        results = data.get("results", [])
-        all_results.extend(results)
-        if not data.get("hasMore") or not data.get("nextPageToken"):
-            break
-        params["pageToken"] = data["nextPageToken"]
-        # Remove prevPageToken if present
-        params.pop("prevPageToken", None)
-
-    return all_results
-
-
-# ── NPS calculation ─────────────────────────────────────────────────
-
-def _extract_nps_score(response: dict) -> int | None:
-    """Try to extract an NPS score (0-10) from a response's answers.
-
-    KnoCommerce stores answers in a 'response' array. We look for
-    numeric answers in the 0-10 range that are likely NPS.
+    Fetch NPS scores for each NPS-bearing survey over the last N days.
+    Returns dict keyed by display name with score breakdown.
     """
-    answers = response.get("response", [])
-    if not answers:
-        return None
+    start_date, end_date = _date_range(days)
+    conn = get_connection()
+    cur = conn.cursor()
 
-    for answer in answers:
-        # Answers can be structured differently — try common patterns
-        val = answer.get("value") or answer.get("answer") or answer.get("text")
-        if val is None:
-            continue
-        try:
-            score = int(float(str(val)))
-            if 0 <= score <= 10:
-                return score
-        except (ValueError, TypeError):
-            continue
-    return None
+    nps_ids = [SURVEY_IDS[s] for s in NPS_SURVEYS if s in SURVEY_IDS]
+    id_placeholders = ", ".join(f"'{sid}'" for sid in nps_ids)
 
-
-def run_nps(days: int) -> dict:
-    """Calculate NPS for the given time window.
-
-    Returns a dict with: nps, promoters, passives, detractors,
-    total_responses, promoter_pct, passive_pct, detractor_pct,
-    score_distribution, period_start, period_end, prior_nps, change.
+    query = f"""
+        SELECT
+            s.TITLE,
+            COUNT(DISTINCT ra.RESPONSE_ID) as total,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) >= 9 THEN 1 ELSE 0 END) as promoters,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) BETWEEN 7 AND 8 THEN 1 ELSE 0 END) as passives,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) <= 6 THEN 1 ELSE 0 END) as detractors
+        FROM {fqn('RESPONSE_ANSWER')} ra
+        JOIN {fqn('RESPONSE')} r ON ra.RESPONSE_ID = r.ID
+        JOIN {fqn('SURVEY')} s ON r.SURVEY_ID = s.ID
+        WHERE ra.TYPE = 'NPS'
+          AND ra.LABEL ILIKE '%recommend%'
+          AND r.SURVEY_ID IN ({id_placeholders})
+          AND r.CREATED_AT >= '{start_date}'
+          AND r.CREATED_AT < '{end_date}'
+          AND ra."VALUE" IS NOT NULL
+          AND ra._FIVETRAN_DELETED = FALSE
+        GROUP BY s.TITLE
+        ORDER BY total DESC
     """
-    # Current period
-    responses = _fetch_responses(days)
-    scores = []
-    for r in responses:
-        s = _extract_nps_score(r)
-        if s is not None:
-            scores.append(s)
 
-    result = _calc_nps(scores, days)
+    cur.execute(query)
+    rows = cur.fetchall()
 
-    # Prior period for comparison
-    prior_responses = _fetch_responses_prior(days)
-    prior_scores = []
-    for r in prior_responses:
-        s = _extract_nps_score(r)
-        if s is not None:
-            prior_scores.append(s)
+    # Merge NPS Survey + Copy under one display name
+    merged = {}
+    for row in rows:
+        title, total, promoters, passives, detractors = row
+        display = DISPLAY_NAMES.get(title, title)
+        if display in merged:
+            m = merged[display]
+            m["total"] += total
+            m["promoters"] += promoters
+            m["passives"] += passives
+            m["detractors"] += detractors
+        else:
+            merged[display] = {
+                "total": total,
+                "promoters": promoters,
+                "passives": passives,
+                "detractors": detractors,
+            }
 
-    prior = _calc_nps(prior_scores, days, prior=True)
-    result["prior_nps"] = prior["nps"]
-    result["prior_responses"] = prior["total_responses"]
-    if result["nps"] is not None and prior["nps"] is not None:
-        result["change"] = round(result["nps"] - prior["nps"], 1)
+    results = {}
+    for display, m in merged.items():
+        total = m["total"]
+        if total > 0:
+            nps = round(((m["promoters"] - m["detractors"]) / total) * 100, 1)
+            m["nps"] = nps
+            m["promoter_pct"] = round(m["promoters"] / total * 100, 1)
+            m["passive_pct"] = round(m["passives"] / total * 100, 1)
+            m["detractor_pct"] = round(m["detractors"] / total * 100, 1)
+        else:
+            m["nps"] = None
+            m["promoter_pct"] = 0
+            m["passive_pct"] = 0
+            m["detractor_pct"] = 0
+        results[display] = m
+
+    cur.close()
+    conn.close()
+    return results
+
+
+def get_nps_trend(days: int = 30) -> dict:
+    """
+    Compare NPS for current period vs prior period of same length.
+    Returns dict keyed by display name with current_nps, prior_nps, delta.
+    """
+    current = get_nps_scores(days)
+
+    end = datetime.now(timezone.utc) - timedelta(days=days)
+    start = end - timedelta(days=days)
+    start_str = start.strftime("%Y-%m-%d")
+    end_str = end.strftime("%Y-%m-%d")
+
+    conn = get_connection()
+    cur = conn.cursor()
+
+    nps_ids = [SURVEY_IDS[s] for s in NPS_SURVEYS if s in SURVEY_IDS]
+    id_placeholders = ", ".join(f"'{sid}'" for sid in nps_ids)
+
+    query = f"""
+        SELECT
+            s.TITLE,
+            COUNT(DISTINCT ra.RESPONSE_ID) as total,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) >= 9 THEN 1 ELSE 0 END) as promoters,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) <= 6 THEN 1 ELSE 0 END) as detractors
+        FROM {fqn('RESPONSE_ANSWER')} ra
+        JOIN {fqn('RESPONSE')} r ON ra.RESPONSE_ID = r.ID
+        JOIN {fqn('SURVEY')} s ON r.SURVEY_ID = s.ID
+        WHERE ra.TYPE = 'NPS'
+          AND ra.LABEL ILIKE '%recommend%'
+          AND r.SURVEY_ID IN ({id_placeholders})
+          AND r.CREATED_AT >= '{start_str}'
+          AND r.CREATED_AT < '{end_str}'
+          AND ra."VALUE" IS NOT NULL
+          AND ra._FIVETRAN_DELETED = FALSE
+        GROUP BY s.TITLE
+    """
+
+    cur.execute(query)
+    rows = cur.fetchall()
+
+    prior_merged = {}
+    for row in rows:
+        title, total, promoters, detractors = row
+        display = DISPLAY_NAMES.get(title, title)
+        if display in prior_merged:
+            prior_merged[display]["total"] += total
+            prior_merged[display]["promoters"] += promoters
+            prior_merged[display]["detractors"] += detractors
+        else:
+            prior_merged[display] = {"total": total, "promoters": promoters, "detractors": detractors}
+
+    prior = {}
+    for display, m in prior_merged.items():
+        if m["total"] > 0:
+            prior[display] = round(((m["promoters"] - m["detractors"]) / m["total"]) * 100, 1)
+        else:
+            prior[display] = None
+
+    cur.close()
+    conn.close()
+
+    trend = {}
+    for display, data in current.items():
+        current_nps = data.get("nps")
+        prior_nps = prior.get(display)
+        delta = round(current_nps - prior_nps, 1) if (current_nps is not None and prior_nps is not None) else None
+        trend[display] = {"current_nps": current_nps, "prior_nps": prior_nps, "delta": delta}
+
+    return trend
+
+
+def get_open_text_responses(days: int = 30, survey_name: str = "NPS Survey",
+                             segment: str = "detractor", limit: int = 80) -> list:
+    """
+    Fetch open-text responses for a given survey and NPS segment.
+    segment: 'detractor' (0-6), 'promoter' (9-10), 'all'
+    """
+    start_date, end_date = _date_range(days)
+    conn = get_connection()
+    cur = conn.cursor()
+
+    if survey_name == "NPS Survey":
+        survey_ids = [SURVEY_IDS["NPS Survey"], SURVEY_IDS["NPS Survey Copy"]]
     else:
-        result["change"] = None
+        sid = SURVEY_IDS.get(survey_name)
+        survey_ids = [sid] if sid else []
 
-    return result
+    if not survey_ids:
+        return []
+
+    id_placeholders = ", ".join(f"'{sid}'" for sid in survey_ids)
+
+    if segment == "detractor":
+        score_filter = "TRY_TO_NUMBER(TRIM(CAST(nps_ans.\"VALUE\" AS VARCHAR), '\"')) <= 6"
+    elif segment == "promoter":
+        score_filter = "TRY_TO_NUMBER(TRIM(CAST(nps_ans.\"VALUE\" AS VARCHAR), '\"')) >= 9"
+    else:
+        score_filter = "1=1"
+
+    query = f"""
+        SELECT TRIM(CAST(text_ans."VALUE" AS VARCHAR), '"') as comment
+        FROM {fqn('RESPONSE_ANSWER')} text_ans
+        JOIN {fqn('RESPONSE')} r ON text_ans.RESPONSE_ID = r.ID
+        JOIN {fqn('RESPONSE_ANSWER')} nps_ans ON nps_ans.RESPONSE_ID = r.ID
+            AND nps_ans.TYPE = 'NPS'
+            AND nps_ans.LABEL ILIKE '%recommend%'
+        WHERE text_ans.TYPE IN ('Text', 'TextArea')
+          AND r.SURVEY_ID IN ({id_placeholders})
+          AND r.CREATED_AT >= '{start_date}'
+          AND r.CREATED_AT < '{end_date}'
+          AND text_ans."VALUE" IS NOT NULL
+          AND LENGTH(TRIM(CAST(text_ans."VALUE" AS VARCHAR), '"')) > 10
+          AND text_ans._FIVETRAN_DELETED = FALSE
+          AND {score_filter}
+        ORDER BY r.CREATED_AT DESC
+        LIMIT {limit}
+    """
+
+    cur.execute(query)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    return [row[0] for row in rows if row[0] and row[0].strip()]
 
 
-def _fetch_responses_prior(days: int) -> list[dict]:
-    """Fetch responses from the prior period (days*2 to days ago)."""
-    end = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
-    start = (datetime.utcnow() - timedelta(days=days * 2)).strftime("%Y-%m-%d")
-    params: dict = {
-        "maxPageSize": 250,
-        "status": "completed",
-        "completedAt[gte]": start,
-        "completedAt[lte]": end,
-    }
-    all_results: list[dict] = []
-    for _ in range(20):
-        data = _api_get("/api/rest/responses", params)
-        results = data.get("results", [])
-        all_results.extend(results)
-        if not data.get("hasMore") or not data.get("nextPageToken"):
-            break
-        params["pageToken"] = data["nextPageToken"]
-        params.pop("prevPageToken", None)
-    return all_results
+def classify_themes_with_llm(comments: list, segment: str = "detractor") -> list:
+    """
+    Classify open-text comments against the validated theme taxonomy using GPT.
+    Returns list of {theme, count, pct, verbatims} dicts sorted by count desc.
+    Only called when n >= 10 comments.
+    """
+    if len(comments) < 10:
+        return []
+
+    from openai import OpenAI
+    client = OpenAI()
+
+    if segment == "detractor":
+        theme_list = "\n".join(f"- {t}" for t in COMPLAINT_THEMES)
+        instruction = (
+            "You are analyzing customer NPS detractor comments for Jack Archer (a men's apparel brand). "
+            "Classify each comment against the following complaint themes. A comment can match multiple themes. "
+            "Return a JSON object with theme names as keys and integer counts as values. "
+            "Only include themes with at least 1 match. Also include a 'top_verbatims' key with a list of "
+            "2-3 representative short quotes (max 100 chars each) from the most common theme.\n\n"
+            f"Themes:\n{theme_list}"
+        )
+    else:
+        theme_list = "\n".join(f"- {t}" for t in POSITIVE_THEMES)
+        instruction = (
+            "You are analyzing customer NPS promoter comments for Jack Archer (a men's apparel brand). "
+            "Classify each comment against the following positive themes. A comment can match multiple themes. "
+            "Return a JSON object with theme names as keys and integer counts as values. "
+            "Only include themes with at least 1 match. Also include a 'top_verbatims' key with a list of "
+            "2-3 representative short quotes (max 100 chars each) from the most common theme.\n\n"
+            f"Themes:\n{theme_list}"
+        )
+
+    comments_text = "\n".join(f"{i+1}. {c}" for i, c in enumerate(comments[:80]))
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": f"Comments:\n{comments_text}"},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+        )
+        data = json.loads(response.choices[0].message.content)
+    except Exception:
+        return []
+
+    top_verbatims = data.pop("top_verbatims", [])
+    total_comments = len(comments)
+
+    themes = []
+    for theme_name, count in data.items():
+        if isinstance(count, int) and count > 0:
+            themes.append({
+                "theme": theme_name,
+                "count": count,
+                "pct": round(count / total_comments * 100, 1),
+                "verbatims": top_verbatims if not themes else [],
+            })
+
+    themes.sort(key=lambda x: x["count"], reverse=True)
+    return themes[:5]
 
 
-def _calc_nps(scores: list[int], days: int, prior: bool = False) -> dict:
-    """Calculate NPS metrics from a list of scores."""
-    if not scores:
-        return {
-            "nps": None,
-            "promoters": 0,
-            "passives": 0,
-            "detractors": 0,
-            "total_responses": 0,
-            "promoter_pct": 0,
-            "passive_pct": 0,
-            "detractor_pct": 0,
-            "score_distribution": {},
-            "period_start": (datetime.utcnow() - timedelta(days=days * (2 if prior else 1))).strftime("%b %-d"),
-            "period_end": (datetime.utcnow() - timedelta(days=days if prior else 0)).strftime("%b %-d, %Y"),
-        }
+def get_full_nps_report(days: int = 30) -> dict:
+    """
+    Full NPS report: scores per survey + trend + detractor themes for NPS Survey.
+    Main entry point for the /nps command.
+    """
+    scores = get_nps_scores(days)
+    trend = get_nps_trend(days)
 
-    total = len(scores)
-    promoters = sum(1 for s in scores if s >= 9)
-    passives = sum(1 for s in scores if 7 <= s <= 8)
-    detractors = sum(1 for s in scores if s <= 6)
+    detractor_comments = get_open_text_responses(
+        days=days, survey_name="NPS Survey", segment="detractor"
+    )
+    detractor_themes = classify_themes_with_llm(detractor_comments, segment="detractor")
 
-    nps = round((promoters / total - detractors / total) * 100, 1)
-
-    # Score distribution
-    dist = {}
-    for s in range(11):
-        count = scores.count(s)
-        if count > 0:
-            dist[s] = count
-
-    offset = days if prior else 0
     return {
-        "nps": nps,
-        "promoters": promoters,
-        "passives": passives,
-        "detractors": detractors,
-        "total_responses": total,
-        "promoter_pct": round(promoters / total * 100, 1),
-        "passive_pct": round(passives / total * 100, 1),
-        "detractor_pct": round(detractors / total * 100, 1),
-        "score_distribution": dist,
-        "period_start": (datetime.utcnow() - timedelta(days=days + offset)).strftime("%b %-d"),
-        "period_end": (datetime.utcnow() - timedelta(days=offset)).strftime("%b %-d, %Y"),
+        "days": days,
+        "scores": scores,
+        "trend": trend,
+        "detractor_themes": detractor_themes,
+        "detractor_comment_count": len(detractor_comments),
     }

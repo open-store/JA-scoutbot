@@ -11,7 +11,7 @@ from typing import Optional
 
 BUSINESS_TZ = ZoneInfo("America/New_York")
 
-VALID_COMMANDS = {"csat", "voc", "errors", "nps", "returns", "reviews", "help"}
+VALID_COMMANDS = {"csat", "voc", "errors", "nps", "pps", "attribution", "returns", "reviews", "help"}
 
 TIMEFRAME_PATTERN = re.compile(r"\bL(\d+)\b", re.IGNORECASE)
 
@@ -26,7 +26,7 @@ FILTER_PATTERNS = {
 @dataclass
 class ParsedCommand:
     """Represents a parsed Scout command."""
-    command: str  # csat, voc, errors, nps, returns, reviews, help
+    command: str  # csat, voc, errors, nps, pps, attribution, returns, reviews, help
     days: int = 7  # number of days for the lookback window
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
@@ -52,6 +52,8 @@ class ParsedCommand:
             "voc": "snowflake",
             "errors": "snowflake",
             "nps": "knocommerce",
+            "pps": "knocommerce",
+            "attribution": "knocommerce",
             "returns": "snowflake",
             "reviews": "okendo",
             "help": "none",
@@ -108,7 +110,7 @@ def parse_command(raw_input: str) -> ParsedCommand:
             command="unknown",
             raw_input=raw_input,
             is_valid=False,
-            error_message=f"Unknown command `{tokens[0]}`. Supported commands: `/CSAT`, `/VOC`, `/Errors`, `/NPS`, `/Returns`, `/Reviews`, `/Help`."
+            error_message=f"Unknown command `{tokens[0]}`. Supported commands: `/CSAT`, `/VOC`, `/Errors`, `/NPS`, `/PPS`, `/Attribution`, `/Returns`, `/Reviews`, `/Help`."
         )
     
     # Handle /Help immediately
@@ -152,8 +154,23 @@ def parse_natural_language(text: str) -> ParsedCommand:
     """
     text_lower = text.lower().strip()
     
+    # Attribution-related (new customer PPS — check before NPS)
+    attribution_keywords = ["how are people finding", "how did they find", "attribution", "acquisition channel",
+                             "where are customers coming from", "how did you hear", "new customer survey",
+                             "first time buyer", "first-time buyer", "how they found us"]
+    if any(kw in text_lower for kw in attribution_keywords):
+        return ParsedCommand(command="attribution", raw_input=text)
+
+    # PPS returning-related (check before NPS)
+    pps_returning_keywords = ["returning customer survey", "why do people come back", "why did they come back",
+                               "what made customers come back", "why do people repurchase", "repeat purchase",
+                               "what almost stopped", "pps returning", "returning pps"]
+    if any(kw in text_lower for kw in pps_returning_keywords):
+        return ParsedCommand(command="pps", filters={"segment": "returning"}, raw_input=text)
+
     # NPS-related
-    nps_keywords = ["nps", "promoter", "detractor", "passive", "survey comment", "knocommerce"]
+    nps_keywords = ["nps", "promoter", "detractor", "passive", "survey comment", "knocommerce",
+                    "net promoter", "nps score", "nps theme", "customer loyalty", "recommend"]
     if any(kw in text_lower for kw in nps_keywords):
         return ParsedCommand(command="nps", raw_input=text)
     

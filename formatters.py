@@ -732,3 +732,187 @@ def format_returns(data: dict) -> str:
     lines.append("• Return comments and primary/secondary reasons from Redo API are not yet integrated.")
 
     return "\n".join(lines)
+
+
+def _bar(pct: float, width: int = 20) -> str:
+    """Render a simple text bar proportional to pct (0-100)."""
+    filled = round(pct / 100 * width)
+    return "█" * filled + "░" * (width - filled)
+
+
+def _nps_emoji(nps: float) -> str:
+    if nps >= 50:
+        return ":large_green_circle:"
+    elif nps >= 0:
+        return ":large_yellow_circle:"
+    else:
+        return ":red_circle:"
+
+
+def _delta_str(delta) -> str:
+    if delta is None:
+        return "n/a"
+    sign = "▲" if delta > 0 else ("▼" if delta < 0 else "")
+    return f"{sign}{abs(delta):.1f}"
+
+
+def format_nps_report(data: dict) -> str:
+    """
+    Format the full NPS report for Slack.
+    Shows each survey separately (never aggregated).
+    """
+    days = data.get("days", 30)
+    scores = data.get("scores", {})
+    trend = data.get("trend", {})
+    detractor_themes = data.get("detractor_themes", [])
+    detractor_comment_count = data.get("detractor_comment_count", 0)
+
+    if not scores:
+        return _no_data_message("NPS", f"last {days} days", "Snowflake (KnoCommerce)")
+
+    lines = [f"*:bar_chart: NPS — Last {days} Days*", ""]
+
+    # Survey-by-survey scores
+    lines.append("*Scores by survey*")
+    for survey_name, s in scores.items():
+        nps = s.get("nps")
+        total = s.get("total", 0)
+        if nps is None or total == 0:
+            lines.append(f"• *{survey_name}:* No data")
+            continue
+        emoji = _nps_emoji(nps)
+        t = trend.get(survey_name, {})
+        delta = t.get("delta")
+        delta_label = f"  {_delta_str(delta)} vs prior {days}d" if delta is not None else ""
+        lines.append(
+            f"{emoji} *{survey_name}:*  `{nps:+.1f}`  "
+            f"P:{s['promoter_pct']}%  Pa:{s['passive_pct']}%  D:{s['detractor_pct']}%  "
+            f"(n={total:,}){delta_label}"
+        )
+    lines.append("")
+
+    # Trend summary
+    has_trend = any(t.get("delta") is not None for t in trend.values())
+    if has_trend:
+        lines.append("*vs. prior period*")
+        for survey_name, t in trend.items():
+            delta = t.get("delta")
+            if delta is not None:
+                direction = "▲" if delta > 0 else ("▼" if delta < 0 else "→")
+                lines.append(f"• *{survey_name}:* {direction} {abs(delta):.1f} pts  (prior: {t['prior_nps']:+.1f})")
+        lines.append("")
+
+    # Detractor themes (NPS Survey only, when n >= 10)
+    if detractor_themes:
+        lines.append(f"*Top detractor themes — NPS Survey* _(from {detractor_comment_count} open-text responses)_")
+        for i, theme in enumerate(detractor_themes, 1):
+            bar = _bar(theme["pct"], width=15)
+            lines.append(f"{i}. *{theme['theme']}*  {bar}  {theme['pct']}%")
+            if theme.get("verbatims"):
+                for v in theme["verbatims"][:2]:
+                    lines.append(f"   _\"{v}\"_")
+        lines.append("")
+    elif detractor_comment_count > 0:
+        lines.append(f"_({detractor_comment_count} detractor comments — not enough for theme analysis in this window)_")
+        lines.append("")
+
+    lines.append(f"*Source:* Snowflake · `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_`")
+    return "\n".join(lines)
+
+
+def format_pps_returning(data: dict) -> str:
+    """Format Returning Customer PPS report for Slack."""
+    days = data.get("days", 30)
+    response_count = data.get("response_count", 0)
+    nps_bd = data.get("nps_breakdown", {})
+    return_reasons = data.get("return_reasons", [])
+    almost_stopped_pct = data.get("almost_stopped_pct", 0)
+    open_text_themes = data.get("open_text_themes", [])
+    open_text_count = data.get("open_text_count", 0)
+
+    if response_count == 0:
+        return _no_data_message("Returning Customer PPS", f"last {days} days", "Snowflake (KnoCommerce)")
+
+    lines = [f"*:repeat: Returning Customer PPS — Last {days} Days*  (n={response_count:,} responses)", ""]
+
+    # NPS
+    nps = nps_bd.get("nps")
+    if nps is not None:
+        emoji = _nps_emoji(nps)
+        lines.append(
+            f"{emoji} *NPS:* `{nps:+.1f}`  "
+            f"P:{nps_bd['promoter_pct']}%  Pa:{nps_bd['passive_pct']}%  D:{nps_bd['detractor_pct']}%  "
+            f"(n={nps_bd['total']:,})"
+        )
+        lines.append("")
+
+    # Why did they come back?
+    if return_reasons:
+        lines.append("*Why did they come back?*")
+        for r in return_reasons[:6]:
+            bar = _bar(r["pct"], width=15)
+            lines.append(f"• *{r['label']}*  {bar}  {r['pct']}%  ({r['count']:,})")
+        lines.append("")
+
+    # Almost stopped?
+    lines.append("*Did anything almost stop them from purchasing?*")
+    lines.append(f"• Yes: *{almost_stopped_pct}%*  │  No: *{100 - almost_stopped_pct:.1f}%*")
+    lines.append("")
+
+    # Open-text themes
+    if open_text_themes:
+        lines.append(f"*Open-text themes* _(from {open_text_count} responses)_")
+        for i, theme in enumerate(open_text_themes, 1):
+            bar = _bar(theme["pct"], width=15)
+            lines.append(f"{i}. *{theme['theme']}*  {bar}  {theme['pct']}%")
+            if theme.get("verbatims"):
+                for v in theme["verbatims"][:1]:
+                    lines.append(f"   _\"{v}\"_")
+        lines.append("")
+
+    lines.append(f"*Source:* Snowflake · `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_`")
+    return "\n".join(lines)
+
+
+def format_attribution(data: dict) -> str:
+    """Format New Customer PPS attribution report for Slack."""
+    days = data.get("days", 30)
+    response_count = data.get("response_count", 0)
+    how_heard = data.get("how_heard", [])
+    what_brought = data.get("what_brought", [])
+    consideration_window = data.get("consideration_window", [])
+    who_for = data.get("who_for", [])
+    open_text_themes = data.get("open_text_themes", [])
+    open_text_count = data.get("open_text_count", 0)
+
+    if response_count == 0:
+        return _no_data_message("Attribution", f"last {days} days", "Snowflake (KnoCommerce)")
+
+    lines = [f"*:mag: Attribution — Last {days} Days*  (n={response_count:,} new customer responses)", ""]
+
+    def _section(title: str, items: list, max_items: int = 6):
+        if not items:
+            return
+        lines.append(f"*{title}*")
+        for r in items[:max_items]:
+            bar = _bar(r["pct"], width=15)
+            lines.append(f"• *{r['label']}*  {bar}  {r['pct']}%  ({r['count']:,})")
+        lines.append("")
+
+    _section("How did they first hear about us?", how_heard)
+    _section("What brought them to the site?", what_brought)
+    _section("Consideration window (awareness → first purchase)", consideration_window)
+    _section("Who did they buy for?", who_for)
+
+    if open_text_themes:
+        lines.append(f"*Open-text themes* _(from {open_text_count} responses)_")
+        for i, theme in enumerate(open_text_themes, 1):
+            bar = _bar(theme["pct"], width=15)
+            lines.append(f"{i}. *{theme['theme']}*  {bar}  {theme['pct']}%")
+            if theme.get("verbatims"):
+                for v in theme["verbatims"][:1]:
+                    lines.append(f"   _\"{v}\"_")
+        lines.append("")
+
+    lines.append(f"*Source:* Snowflake · `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_`")
+    return "\n".join(lines)
