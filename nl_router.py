@@ -28,7 +28,9 @@ Scout supports these commands:
 - CSAT: questions about customer satisfaction scores, CSAT %, ratings, satisfaction trends
 - VOC: questions about voice of customer, top themes, contact reasons, ticket volume, what customers are saying, product feedback, customer comments about a specific product, design feedback, fit/sizing feedback
 - Errors: questions about bugs, errors, broken features, checkout issues, payment issues, discount code failures, site issues
-- NPS: questions about Net Promoter Score, promoters, detractors, survey comments
+- NPS: questions about Net Promoter Score, customer loyalty, promoters, detractors, NPS themes, why people rate us low/high, NPS score for a period. Jack Archer runs 3 NPS-type surveys (NPS Survey, Returning Customer PPS, New Customer PPS) — all are shown together in the NPS report.
+- PPS: questions specifically about why returning customers came back, what almost stopped them from purchasing, what returning customers want to see, returning customer survey insights. Use filters: {"segment": "returning"}. Also use PPS for new customer open-text feedback that isn't attribution-focused.
+- Attribution: questions about how customers found us, acquisition channels, where new customers come from, what brought them to the site, consideration window (how long they knew us before buying), who they bought for. This is the New Customer PPS attribution breakdown.
 - Returns: questions about returns, refunds, exchanges, return reasons, return rates
 - Reviews: questions about product reviews, star ratings, review sentiment
 - Help: user is asking how to use Scout or what commands are available
@@ -40,10 +42,13 @@ IMPORTANT RULES:
 2. Questions about what customers are saying, comments, callouts, feedback, complaints, fit, sizing, length, quality about a product → VOC with product filter.
 3. Confidence should be "high" when intent is clear (even if the message is long/conversational). Only use "low" when you genuinely cannot determine the intent.
 4. For long conversational messages, focus on the CORE QUESTION being asked, not the surrounding context.
+5. "How are people finding us" or "acquisition" or "where are customers coming from" → Attribution (not NPS or VOC).
+6. "Why do customers come back" or "what made them return" or "returning customer survey" → PPS with segment:returning.
+7. "NPS themes", "why are people rating us low", "what are detractors saying" → NPS (not VOC).
 
 Respond with ONLY a JSON object in this exact format:
 {
-  "command": "CSAT" | "VOC" | "Errors" | "NPS" | "Returns" | "Reviews" | "Help",
+  "command": "CSAT" | "VOC" | "Errors" | "NPS" | "PPS" | "Attribution" | "Returns" | "Reviews" | "Help",
   "timeframe": "L7" | "L30" | "L180",
   "filters": {},
   "confidence": "high" | "medium" | "low",
@@ -55,6 +60,13 @@ Examples:
 - "show me top customer complaints last month" → {"command": "VOC", "timeframe": "L30", "filters": {}, "confidence": "high", "reasoning": "VOC/complaints question, last month = L30"}
 - "are there any checkout errors?" → {"command": "Errors", "timeframe": "L7", "filters": {}, "confidence": "high", "reasoning": "Error/checkout question, default L7"}
 - "what are customers saying about the hoodie?" → {"command": "VOC", "timeframe": "L30", "filters": {"product": "hoodie"}, "confidence": "high", "reasoning": "VOC question with product filter"}
+- "what's our NPS this month?" → {"command": "NPS", "timeframe": "L30", "filters": {}, "confidence": "high", "reasoning": "NPS score question"}
+- "what are the NPS themes?" → {"command": "NPS", "timeframe": "L30", "filters": {}, "confidence": "high", "reasoning": "NPS theme analysis"}
+- "why are people rating us low?" → {"command": "NPS", "timeframe": "L30", "filters": {}, "confidence": "high", "reasoning": "NPS detractor themes question"}
+- "how are people finding us past 30 days?" → {"command": "Attribution", "timeframe": "L30", "filters": {}, "confidence": "high", "reasoning": "Attribution/acquisition channel question"}
+- "what's our top acquisition channel?" → {"command": "Attribution", "timeframe": "L30", "filters": {}, "confidence": "high", "reasoning": "Attribution question"}
+- "why do customers come back?" → {"command": "PPS", "timeframe": "L30", "filters": {"segment": "returning"}, "confidence": "high", "reasoning": "Returning customer PPS question"}
+- "what almost stopped customers from buying?" → {"command": "PPS", "timeframe": "L30", "filters": {"segment": "returning"}, "confidence": "high", "reasoning": "Returning customer PPS friction question"}
 - "Are you able to let me know if we get comments or callouts on the anytime crewneck sleeve length? I'm working on a V neck version" → {"command": "VOC", "timeframe": "L30", "filters": {"product": "anytime crewneck"}, "confidence": "high", "reasoning": "Product feedback question about Anytime Crewneck, VOC with product filter"}
 - "do customers mention body length on the jetsetter pant?" → {"command": "VOC", "timeframe": "L30", "filters": {"product": "jetsetter pant"}, "confidence": "high", "reasoning": "Product-specific feedback question"}
 """
@@ -90,7 +102,19 @@ def _keyword_fallback(text: str) -> dict:
     """Simple keyword-based fallback router."""
     text_lower = text.lower()
 
-    if any(kw in text_lower for kw in ["nps", "promoter", "detractor", "survey"]):
+    # Attribution (check before NPS — "survey" alone should not trigger attribution)
+    if any(kw in text_lower for kw in ["how are people finding", "attribution", "acquisition channel",
+                                        "where are customers coming from", "how did you hear",
+                                        "new customer survey", "first time buyer", "first-time buyer"]):
+        return {"command": "Attribution", "timeframe": "L30", "filters": {}, "confidence": "medium", "reasoning": "keyword: attribution"}
+
+    # PPS returning (check before NPS)
+    if any(kw in text_lower for kw in ["why do people come back", "why did they come back",
+                                        "what made customers come back", "returning customer survey",
+                                        "what almost stopped", "pps returning"]):
+        return {"command": "PPS", "timeframe": "L30", "filters": {"segment": "returning"}, "confidence": "medium", "reasoning": "keyword: pps returning"}
+
+    if any(kw in text_lower for kw in ["nps", "promoter", "detractor", "net promoter", "customer loyalty"]):
         return {"command": "NPS", "timeframe": "L30", "filters": {}, "confidence": "medium", "reasoning": "keyword: nps/promoter"}
 
     if any(kw in text_lower for kw in ["return", "refund", "exchange"]):
