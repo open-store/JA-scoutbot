@@ -61,16 +61,38 @@ def _parse_value(raw) -> list:
 
 # ── Channel normalisation ───────────────────────────────────────────
 # Maps raw survey answer variants → canonical channel labels.
-# Covers both structured checkbox values and free-text write-ins.
+# Social Media is split by platform so the breakdown is actionable.
 _CHANNEL_MAP = {
-    # Social Media variants
+    # Instagram
+    "instagram": "Instagram",
+    "ig": "Instagram",
+    "insta": "Instagram",
+    "instagram and facebook": "Instagram",
+    "instagram ad": "Instagram",
+    # Facebook
+    "facebook": "Facebook",
+    "fb": "Facebook",
+    "fakebook": "Facebook",
+    "face book": "Facebook",
+    "facebook promo & your website": "Facebook",
+    "as on facebook": "Facebook",
+    "fb ad": "Facebook",
+    "facebook ad": "Facebook",
+    "meta": "Facebook",
+    # TikTok
+    "tiktok": "TikTok",
+    # YouTube
+    "youtube": "YouTube",
+    "you tube": "YouTube",
+    "yourube": "YouTube",
+    "youtube video": "YouTube",
+    "youtube review": "YouTube",
+    # Social Media (platform-unspecified)
     "social media": "Social Media",
     "social media (instagram, tiktok, facebook, twitter.)": "Social Media",
-    "instagram": "Social Media",
-    "ig": "Social Media",
-    "facebook": "Social Media",
-    "fb": "Social Media",
-    "tiktok": "Social Media",
+    "socials": "Social Media",
+    "social media ads": "Social Media",
+    "scrolling": "Social Media",
     "twitter": "Social Media",
     "x": "Social Media",
     "pinterest": "Social Media",
@@ -78,33 +100,79 @@ _CHANNEL_MAP = {
     "search engine (google, bing, etc.)": "Search Engine",
     "google": "Search Engine",
     "google search": "Search Engine",
+    "google ads": "Search Engine",
+    "google ad": "Search Engine",
+    "google shopping": "Search Engine",
+    "google ai": "Search Engine",
     "bing": "Search Engine",
     "online": "Search Engine",
     "internet": "Search Engine",
+    "web": "Search Engine",
+    "web search": "Search Engine",
+    "web browser": "Search Engine",
+    "online search": "Search Engine",
+    "internet search": "Search Engine",
+    "on line": "Search Engine",
+    "on line search": "Search Engine",
+    "on-line": "Search Engine",
+    "shopped on net": "Search Engine",
+    "found online": "Search Engine",
+    "research": "Search Engine",
     # Word of mouth variants
     "friend or family member (word of mouth)": "Word of Mouth / Referral",
     "word of mouth/referral": "Word of Mouth / Referral",
     "friend": "Word of Mouth / Referral",
+    "a friend": "Word of Mouth / Referral",
     "family": "Word of Mouth / Referral",
+    "family member": "Word of Mouth / Referral",
     "referral": "Word of Mouth / Referral",
+    "recommendation": "Word of Mouth / Referral",
+    "friend recommended": "Word of Mouth / Referral",
+    "a buddy": "Word of Mouth / Referral",
+    "a buddy of mine said they felt good on the balls": "Word of Mouth / Referral",
+    "coworker": "Word of Mouth / Referral",
+    "coworkers": "Word of Mouth / Referral",
     # Influencer / Blog
     "influencer or blog": "Influencer / Blog",
     "influencer": "Influencer / Blog",
     "blog": "Influencer / Blog",
-    "youtube": "Influencer / Blog",
     # Podcast
     "podcast": "Podcast",
+    "podcast or radio": "Podcast",
     # TV / Traditional
     "tv": "TV / Traditional Media",
+    "tv ad": "TV / Traditional Media",
+    "tv ad": "TV / Traditional Media",
     "television": "TV / Traditional Media",
     "radio": "TV / Traditional Media",
+    "direct mail": "Direct Mail",
+    "mail": "Direct Mail",
+    "catalog": "Direct Mail",
     # Email / SMS
     "email": "Email / SMS",
+    "email / sms": "Email / SMS",
     "sms": "Email / SMS",
-    "text": "Email / SMS",
+    "text or email": "Email / SMS",
+    "e mail": "Email / SMS",
+    # AI-assisted discovery (emerging channel)
+    "chatgpt": "AI Discovery",
+    "chat gpt": "AI Discovery",
+    "chat gpt": "AI Discovery",
+    "gemini": "AI Discovery",
+    "grok": "AI Discovery",
+    "claude": "AI Discovery",
     # Other (keep as-is — write-ins handled separately)
     "other (please specify)": "Other",
     "other": "Other",
+}
+
+# Canonical channels shown in the main how_heard distribution.
+# Anything not in this set is treated as a write-in and routed to Other breakdown.
+CANONICAL_CHANNELS = {
+    "Instagram", "Facebook", "TikTok", "YouTube", "Social Media",
+    "Search Engine", "Word of Mouth / Referral", "Influencer / Blog",
+    "Podcast", "TV / Traditional Media", "Direct Mail", "Email / SMS",
+    "AI Discovery", "Other",
 }
 
 
@@ -114,13 +182,21 @@ def _normalise_channel(raw_label: str) -> str:
     return _CHANNEL_MAP.get(key, raw_label.strip())
 
 
-def _count_values(rows, normalise: bool = False) -> dict:
-    """Aggregate a list of (value,) rows into a frequency dict."""
+def _count_values(rows, normalise: bool = False, canonical_only: bool = False) -> dict:
+    """
+    Aggregate a list of (value,) rows into a frequency dict.
+    normalise=True  → map raw values to canonical labels via _CHANNEL_MAP
+    canonical_only=True → after normalising, only keep labels in CANONICAL_CHANNELS
+                          (non-canonical write-ins are excluded from the main distribution
+                           and handled separately by _cluster_other_writeins)
+    """
     counts = {}
     for (raw,) in rows:
         for val in _parse_value(raw):
             if val:
                 label = _normalise_channel(val) if normalise else val
+                if canonical_only and label not in CANONICAL_CHANNELS:
+                    continue
                 counts[label] = counts.get(label, 0) + 1
     return counts
 
@@ -297,7 +373,7 @@ def get_attribution(days: int = 30) -> dict:
     """)
     response_count = cur.fetchone()[0]
 
-    def fetch_distribution(label_pattern: str, normalise: bool = False) -> list:
+    def fetch_distribution(label_pattern: str, normalise: bool = False, canonical_only: bool = False) -> list:
         cur.execute(f"""
             SELECT ra."VALUE"
             FROM {fqn('RESPONSE_ANSWER')} ra
@@ -309,10 +385,10 @@ def get_attribution(days: int = 30) -> dict:
               AND ra."VALUE" IS NOT NULL
               AND ra._FIVETRAN_DELETED = FALSE
         """)
-        return _top_n(_count_values(cur.fetchall(), normalise=normalise))
+        return _top_n(_count_values(cur.fetchall(), normalise=normalise, canonical_only=canonical_only))
 
-    # how_heard: normalise variants + show full distribution (no cap)
-    how_heard = fetch_distribution("%hear about%", normalise=True)
+    # how_heard: normalise variants, show only canonical channels (write-ins handled separately)
+    how_heard = fetch_distribution("%hear about%", normalise=True, canonical_only=True)
     what_brought = fetch_distribution("%brought you%")
     consideration_window = fetch_distribution("%long did you know%")
     who_for = fetch_distribution("%purchase this for%")
