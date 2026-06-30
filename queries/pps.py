@@ -59,22 +59,80 @@ def _parse_value(raw) -> list:
         return [s.strip('"').strip()]
 
 
-def _count_values(rows) -> dict:
+# ── Channel normalisation ───────────────────────────────────────────
+# Maps raw survey answer variants → canonical channel labels.
+# Covers both structured checkbox values and free-text write-ins.
+_CHANNEL_MAP = {
+    # Social Media variants
+    "social media": "Social Media",
+    "social media (instagram, tiktok, facebook, twitter.)": "Social Media",
+    "instagram": "Social Media",
+    "ig": "Social Media",
+    "facebook": "Social Media",
+    "fb": "Social Media",
+    "tiktok": "Social Media",
+    "twitter": "Social Media",
+    "x": "Social Media",
+    "pinterest": "Social Media",
+    # Search / Google variants
+    "search engine (google, bing, etc.)": "Search Engine",
+    "google": "Search Engine",
+    "google search": "Search Engine",
+    "bing": "Search Engine",
+    "online": "Search Engine",
+    "internet": "Search Engine",
+    # Word of mouth variants
+    "friend or family member (word of mouth)": "Word of Mouth / Referral",
+    "word of mouth/referral": "Word of Mouth / Referral",
+    "friend": "Word of Mouth / Referral",
+    "family": "Word of Mouth / Referral",
+    "referral": "Word of Mouth / Referral",
+    # Influencer / Blog
+    "influencer or blog": "Influencer / Blog",
+    "influencer": "Influencer / Blog",
+    "blog": "Influencer / Blog",
+    "youtube": "Influencer / Blog",
+    # Podcast
+    "podcast": "Podcast",
+    # TV / Traditional
+    "tv": "TV / Traditional Media",
+    "television": "TV / Traditional Media",
+    "radio": "TV / Traditional Media",
+    # Email / SMS
+    "email": "Email / SMS",
+    "sms": "Email / SMS",
+    "text": "Email / SMS",
+    # Other (keep as-is — write-ins handled separately)
+    "other (please specify)": "Other",
+    "other": "Other",
+}
+
+
+def _normalise_channel(raw_label: str) -> str:
+    """Map a raw channel answer to its canonical label."""
+    key = raw_label.strip().rstrip(" ").lower()
+    return _CHANNEL_MAP.get(key, raw_label.strip())
+
+
+def _count_values(rows, normalise: bool = False) -> dict:
     """Aggregate a list of (value,) rows into a frequency dict."""
     counts = {}
     for (raw,) in rows:
         for val in _parse_value(raw):
             if val:
-                counts[val] = counts.get(val, 0) + 1
+                label = _normalise_channel(val) if normalise else val
+                counts[label] = counts.get(label, 0) + 1
     return counts
 
 
-def _top_n(counts: dict, n: int = 8) -> list:
-    """Return top-N items as list of {label, count, pct} sorted by count."""
+def _top_n(counts: dict, n: int = None) -> list:
+    """Return top-N items (all items if n is None) as list of {label, count, pct} sorted by count."""
     total = sum(counts.values())
     if total == 0:
         return []
-    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)[:n]
+    sorted_items = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    if n is not None:
+        sorted_items = sorted_items[:n]
     return [
         {"label": label, "count": count, "pct": round(count / total * 100, 1)}
         for label, count in sorted_items
@@ -239,7 +297,7 @@ def get_attribution(days: int = 30) -> dict:
     """)
     response_count = cur.fetchone()[0]
 
-    def fetch_distribution(label_pattern: str) -> list:
+    def fetch_distribution(label_pattern: str, normalise: bool = False) -> list:
         cur.execute(f"""
             SELECT ra."VALUE"
             FROM {fqn('RESPONSE_ANSWER')} ra
@@ -251,12 +309,33 @@ def get_attribution(days: int = 30) -> dict:
               AND ra."VALUE" IS NOT NULL
               AND ra._FIVETRAN_DELETED = FALSE
         """)
-        return _top_n(_count_values(cur.fetchall()))
+        return _top_n(_count_values(cur.fetchall(), normalise=normalise))
 
-    how_heard = fetch_distribution("%hear about%")
+    # how_heard: normalise variants + show full distribution (no cap)
+    how_heard = fetch_distribution("%hear about%", normalise=True)
     what_brought = fetch_distribution("%brought you%")
     consideration_window = fetch_distribution("%long did you know%")
     who_for = fetch_distribution("%purchase this for%")
+
+    # Fetch "Other (Please specify)" write-in text for how_heard
+    cur.execute(f"""
+        SELECT TRIM(CAST(other_ans."VALUE" AS VARCHAR), '"') as writeins
+        FROM {fqn('RESPONSE_ANSWER')} other_ans
+        JOIN {fqn('RESPONSE')} r ON other_ans.RESPONSE_ID = r.ID
+        JOIN {fqn('RESPONSE_ANSWER')} heard_ans ON heard_ans.RESPONSE_ID = r.ID
+            AND heard_ans.LABEL ILIKE '%hear about%'
+        WHERE r.SURVEY_ID = '{survey_id}'
+          AND other_ans.LABEL ILIKE '%specify%'
+          AND other_ans.TYPE IN ('Text', 'TextArea')
+          AND r.CREATED_AT >= '{start_date}'
+          AND r.CREATED_AT < '{end_date}'
+          AND other_ans."VALUE" IS NOT NULL
+          AND LENGTH(TRIM(CAST(other_ans."VALUE" AS VARCHAR), '"')) > 3
+          AND other_ans._FIVETRAN_DELETED = FALSE
+        ORDER BY r.CREATED_AT DESC
+        LIMIT 120
+    """)
+    other_writeins = [r[0] for r in cur.fetchall() if r[0] and r[0].strip()]
 
     # Open-text answers
     cur.execute(f"""
@@ -280,6 +359,7 @@ def get_attribution(days: int = 30) -> dict:
     conn.close()
 
     open_text_themes = _extract_pps_themes(open_text_comments, survey_type="new")
+    other_breakdown = _cluster_other_writeins(other_writeins)
 
     return {
         "days": days,
@@ -288,6 +368,8 @@ def get_attribution(days: int = 30) -> dict:
         "what_brought": what_brought,
         "consideration_window": consideration_window,
         "who_for": who_for,
+        "other_writeins_count": len(other_writeins),
+        "other_breakdown": other_breakdown,
         "open_text_themes": open_text_themes,
         "open_text_count": len(open_text_comments),
     }
@@ -355,3 +437,54 @@ def _extract_pps_themes(comments: list, survey_type: str = "returning") -> list:
 
     themes.sort(key=lambda x: x["count"], reverse=True)
     return themes[:5]
+
+
+def _cluster_other_writeins(writeins: list) -> list:
+    """
+    Use GPT to cluster 'Other (Please specify)' write-in responses for how_heard
+    into meaningful sub-categories. Returns list of {label, count, pct} dicts.
+    Only called when n >= 5 write-ins.
+    """
+    if len(writeins) < 5:
+        return []
+
+    from openai import OpenAI
+    client = OpenAI()
+
+    instruction = (
+        "You are analyzing free-text 'Other' responses from a post-purchase survey asking "
+        "new customers of Jack Archer (a men's apparel brand) how they first heard about the brand. "
+        "Group these responses into clear, concise channel categories (e.g. 'YouTube', 'Reddit', "
+        "'Friend recommendation', 'Podcast', 'Email', 'Saw an ad', etc.). "
+        "Return a JSON object with category names as keys and integer counts as values. "
+        "Aim for 4-8 categories. Do not include a 'top_verbatims' key."
+    )
+
+    text = "\n".join(f"{i+1}. {w}" for i, w in enumerate(writeins[:100]))
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": instruction},
+                {"role": "user", "content": f"Write-in responses:\n{text}"},
+            ],
+            response_format={"type": "json_object"},
+            temperature=0.1,
+        )
+        data = json.loads(response.choices[0].message.content)
+    except Exception:
+        return []
+
+    total = len(writeins)
+    results = []
+    for label, count in data.items():
+        if isinstance(count, int) and count > 0:
+            results.append({
+                "label": label,
+                "count": count,
+                "pct": round(count / total * 100, 1),
+            })
+
+    results.sort(key=lambda x: x["count"], reverse=True)
+    return results

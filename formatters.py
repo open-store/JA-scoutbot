@@ -882,6 +882,8 @@ def format_attribution(data: dict) -> str:
     what_brought = data.get("what_brought", [])
     consideration_window = data.get("consideration_window", [])
     who_for = data.get("who_for", [])
+    other_breakdown = data.get("other_breakdown", [])
+    other_writeins_count = data.get("other_writeins_count", 0)
     open_text_themes = data.get("open_text_themes", [])
     open_text_count = data.get("open_text_count", 0)
 
@@ -890,17 +892,28 @@ def format_attribution(data: dict) -> str:
 
     lines = [f"*:mag: Attribution — Last {days} Days*  (n={response_count:,} new customer responses)", ""]
 
-    def _section(title: str, items: list, max_items: int = 6):
+    def _section(title: str, items: list, max_items: int = None):
         if not items:
             return
         lines.append(f"*{title}*")
-        for r in items[:max_items]:
+        display = items if max_items is None else items[:max_items]
+        for r in display:
             bar = _bar(r["pct"], width=15)
             lines.append(f"• *{r['label']}*  {bar}  {r['pct']}%  ({r['count']:,})")
         lines.append("")
 
+    # How heard: full normalised distribution (no cap)
     _section("How did they first hear about us?", how_heard)
-    _section("What brought them to the site?", what_brought)
+
+    # Other breakdown: LLM-clustered write-ins
+    if other_breakdown and other_writeins_count >= 5:
+        lines.append(f"*↳ 'Other' breakdown* _(from {other_writeins_count} write-in responses)_")
+        for r in other_breakdown:
+            bar = _bar(r["pct"], width=12)
+            lines.append(f"  • *{r['label']}*  {bar}  {r['pct']}%  ({r['count']:,})")
+        lines.append("")
+
+    _section("What brought them to the site?", what_brought, max_items=8)
     _section("Consideration window (awareness → first purchase)", consideration_window)
     _section("Who did they buy for?", who_for)
 
