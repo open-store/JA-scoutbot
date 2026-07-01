@@ -320,35 +320,43 @@ def handle_dm(event, client):
     if event.get("bot_id") or event.get("subtype"):
         return
 
-    # Guard: only respond if the message was sent TO Scout directly.
-    # In Slack, a DM channel between user A and user B is visible to both as
-    # channel_type=im. Without this check, Scout would respond to messages
-    # in DM threads it is not a participant in.
+    # Guard: only respond in Scout's own 1:1 DM thread.
+    # Slack fires im events for ALL DMs the bot can see — including DMs between
+    # other users. We verify the channel is actually a DM with Scout by calling
+    # conversations.info and checking the 'user' field (the other participant).
     bot_user_id = _get_bot_user_id()
     if bot_user_id and event.get("user") == bot_user_id:
-        # Scout sent this message — skip
+        # Scout sent this message — skip to avoid loops
         return
-    # The channel ID for a DM with Scout is the bot's own IM channel.
-    # We verify by checking the channel belongs to this bot's DM.
-    # Slack sends im events for all IMs the bot can see — filter to only
-    # the channel where the bot itself is the other participant.
-    # The safest check: only respond if the event user is NOT the bot,
-    # and the channel is a known IM channel for this bot (checked via
-    # conversations.info if needed). For now, we rely on the bot_id guard
-    # above plus the user != bot_user_id check to prevent loops.
+
+    dm_channel = event.get("channel")
+    try:
+        info = client.conversations_info(channel=dm_channel)
+        channel_info = info.get("channel", {})
+        if not channel_info.get("is_im", False):
+            return  # Not a DM channel
+        # 'user' in channel_info is the OTHER participant in the DM.
+        # If it's the bot itself, skip (shouldn't happen but be safe).
+        if bot_user_id and channel_info.get("user") == bot_user_id:
+            return
+        # If the channel's other participant is NOT the message sender,
+        # this is a DM between two other people — Scout should not respond.
+        channel_user = channel_info.get("user")
+        event_user = event.get("user")
+        if channel_user and event_user and channel_user != event_user:
+            logger.debug(f"Skipping DM in {dm_channel}: channel user {channel_user} != event user {event_user}")
+            return
+    except Exception as e:
+        logger.warning(f"Could not verify DM channel {dm_channel}: {e}")
+        return  # Fail safe: don't respond if we can't verify
+
     raw_text = event.get("text", "").strip()
     user = event.get("user", "unknown")
-    # In a DM thread with Scout, every message is already directed at the bot —
-    # no @mention required. Strip any accidental @mention tags if present,
-    # then treat the remaining text as the query.
+    # Strip any accidental @mention tags, then treat as the query
     text = re.sub(r"<@[A-Z0-9]+>", "", raw_text).strip()
 
     if not text:
         return
-
-    # Use the channel from the event directly — this is the correct DM channel
-    # where the user sent the message, and where Scout should reply.
-    dm_channel = event.get("channel")
 
     logger.info(f"DM from {user} in {dm_channel}: '{text}'")
 

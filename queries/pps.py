@@ -393,6 +393,10 @@ def get_attribution(days: int = 30) -> dict:
     consideration_window = fetch_distribution("%long did you know%")
     who_for = fetch_distribution("%purchase this for%")
 
+    # n= header should reflect how_heard respondents, not total survey responses
+    # (not every respondent answers every question)
+    how_heard_respondent_count = sum(item["count"] for item in how_heard)
+
     # Fetch "Other (Please specify)" write-in text for how_heard
     cur.execute(f"""
         SELECT TRIM(CAST(other_ans."VALUE" AS VARCHAR), '"') as writeins
@@ -413,41 +417,24 @@ def get_attribution(days: int = 30) -> dict:
     """)
     other_writeins = [r[0] for r in cur.fetchall() if r[0] and r[0].strip()]
 
-    # Open-text answers
-    cur.execute(f"""
-        SELECT TRIM(CAST(ra."VALUE" AS VARCHAR), '"') as comment
-        FROM {fqn('RESPONSE_ANSWER')} ra
-        JOIN {fqn('RESPONSE')} r ON ra.RESPONSE_ID = r.ID
-        WHERE r.SURVEY_ID = '{survey_id}'
-          AND ra.TYPE IN ('Text', 'TextArea')
-          AND r.CREATED_AT >= '{start_date}'
-          AND r.CREATED_AT < '{end_date}'
-          AND ra."VALUE" IS NOT NULL
-          AND LENGTH(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) > 5
-          AND ra._FIVETRAN_DELETED = FALSE
-        ORDER BY r.CREATED_AT DESC
-        LIMIT 80
-    """)
-    open_text_rows = cur.fetchall()
-    open_text_comments = [r[0] for r in open_text_rows if r[0] and r[0].strip()]
-
     cur.close()
     conn.close()
 
-    open_text_themes = _extract_pps_themes(open_text_comments, survey_type="new")
+    # Other breakdown: cluster write-in responses only (no separate open_text_themes
+    # — the attribution survey's open-text covers product feedback, not channel data)
     other_breakdown = _cluster_other_writeins(other_writeins)
 
     return {
         "days": days,
-        "response_count": response_count,
+        "response_count": how_heard_respondent_count,  # n= shows how_heard respondents
         "how_heard": how_heard,
         "what_brought": what_brought,
         "consideration_window": consideration_window,
         "who_for": who_for,
         "other_writeins_count": len(other_writeins),
         "other_breakdown": other_breakdown,
-        "open_text_themes": open_text_themes,
-        "open_text_count": len(open_text_comments),
+        "open_text_themes": [],   # removed — was pulling from wrong questions
+        "open_text_count": 0,
     }
 
 
