@@ -24,6 +24,7 @@ from formatters import (
     format_csat, format_voc, format_errors, format_help, format_not_available,
     format_nps, format_reviews, format_returns,
     format_nps_report, format_pps_returning, format_attribution,
+    format_daily,
 )
 from queries.csat import run_csat
 from scout.services.voc_service import run_voc_query
@@ -32,6 +33,7 @@ from queries.nps import get_full_nps_report
 from queries.pps import get_returning_pps, get_attribution as run_attribution
 from queries.reviews import run_reviews
 from queries.returns import run_returns
+from queries.richpanel import get_daily_report
 from nl_router import route_natural_language, build_command_from_routing
 
 load_dotenv()  # no-op in Cloud Run/Railway; loads .env in local dev
@@ -118,6 +120,10 @@ def execute_scout_command(raw_input: str) -> str:
         product = cmd.filters.get("product") if cmd.filters else None
         data = run_returns(cmd.days, product_filter=product)
         return format_returns(data)
+
+    if cmd.command == "daily":
+        data = get_daily_report()
+        return format_daily(data)
 
     return (
         f"Unknown command `{cmd.command}`.\n"
@@ -243,6 +249,30 @@ def handle_returns(ack, respond, command):
     text = command.get("text", "").strip()
     raw_input = f"/Returns {text}".strip()
     _handle_slash(raw_input, ack, respond, command)
+
+
+@app.command("/daily")
+def handle_daily(ack, respond, command):
+    """Daily CS KPI report — tickets closed, FRT, RT, CSAT by agent."""
+    ack()
+    user = command.get("user_id", "unknown")
+    channel = command.get("channel_id", "unknown")
+    logger.info(f"Slash '/daily' from {user} in {channel}")
+
+    def _run():
+        try:
+            data = get_daily_report()
+            result = format_daily(data)
+        except Exception as e:
+            logger.error(f"Error executing '/daily': {e}", exc_info=True)
+            result = (
+                "Scout hit an error fetching the daily report.\n"
+                f"Error: `{str(e)[:300]}`\n"
+                "Try again in a moment or check `/scout-help`."
+            )
+        respond({"response_type": "in_channel", "text": result})
+
+    run_in_background(_run)
 
 
 @app.command("/reviews")

@@ -11,7 +11,7 @@ from typing import Optional
 
 BUSINESS_TZ = ZoneInfo("America/New_York")
 
-VALID_COMMANDS = {"csat", "voc", "errors", "nps", "pps", "attribution", "returns", "reviews", "help"}
+VALID_COMMANDS = {"csat", "voc", "errors", "nps", "pps", "attribution", "returns", "reviews", "help", "daily"}
 
 TIMEFRAME_PATTERN = re.compile(r"\bL(\d+)\b", re.IGNORECASE)
 
@@ -57,6 +57,7 @@ class ParsedCommand:
             "returns": "snowflake",
             "reviews": "okendo",
             "help": "none",
+            "daily": "richpanel",
         }
         self.source = source_map.get(self.command, "snowflake")
 

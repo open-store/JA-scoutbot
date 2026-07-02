@@ -372,6 +372,7 @@ def format_help() -> str:
         "• `/nps L30` — NPS scores by survey (NPS Survey, Returning PPS, New Customer PPS)",
         "• `/pps L30` — Returning Customer PPS: why they came back, friction, themes",
         "• `/attribution L30` — New customer attribution: how they found us, what brought them",
+        "• `/daily` — Yesterday's CS KPI report: tickets closed, FRT, RT, CSAT by agent",
         "• `/returns L30` — Return volume, top products, and type breakdown",
         "• `/reviews L30` — Product review analysis (Okendo)",
         "• `/scout-help` — This message",
@@ -930,4 +931,93 @@ def format_attribution(data: dict) -> str:
         lines.append("")
 
     lines.append(f"*Source:* Snowflake · `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_`")
+    return "\n".join(lines)
+
+
+def format_daily(data: dict) -> str:
+    """
+    Format the /daily CS KPI report for Slack.
+
+    Sections:
+      1. Header + date
+      2. Team totals (closed, FRT, RT, CSAT)
+      3. Per-agent breakdown
+      4. Negative CSAT callout (if any)
+      5. Source line
+    """
+    date_label = data.get("date_label", "yesterday")
+    totals = data.get("totals", {})
+    by_agent = data.get("by_agent", [])
+    negatives_count = data.get("negatives_count", 0)
+
+    closed = totals.get("closed", 0)
+    frt_avg = totals.get("frt_avg", "—")
+    frt_med = totals.get("frt_med", "—")
+    rt_avg = totals.get("rt_avg", "—")
+    rt_med = totals.get("rt_med", "—")
+    csat_pct = totals.get("csat_pct")
+    surveys_sent = totals.get("surveys_sent", 0)
+    surveys_rated = totals.get("surveys_rated", 0)
+
+    if closed == 0 and not by_agent:
+        return (
+            f"*:bar_chart: Daily CS Report — {date_label}*\n\n"
+            "No ticket data found for this date.\n\n"
+            "*Source:* Richpanel API"
+        )
+
+    lines = [
+        f"*:bar_chart: Daily CS Report — {date_label}*",
+        "",
+    ]
+
+    # ── Team totals ───────────────────────────────────────────────────────────
+    lines.append("*Team totals*")
+    lines.append(f"• *Tickets closed:* {closed}")
+    lines.append(f"• *FRT (BH):* avg {frt_avg}  ·  median {frt_med}")
+    lines.append(f"• *Resolution time (BH):* avg {rt_avg}  ·  median {rt_med}")
+
+    if csat_pct is not None:
+        csat_str = f"{float(csat_pct):.1f}%"
+        lines.append(f"• *CSAT:* {csat_str}  ({surveys_rated}/{surveys_sent} surveys rated)")
+    else:
+        lines.append(f"• *CSAT:* —  ({surveys_rated}/{surveys_sent} surveys rated)")
+
+    lines.append("")
+
+    # ── Per-agent breakdown ───────────────────────────────────────────────────
+    if by_agent:
+        lines.append("*By agent*")
+        for agent in by_agent:
+            name = agent["name"]
+            a_closed = agent["closed"]
+            a_frt = agent["frt_avg"]
+            a_rt = agent["rt_avg"]
+            a_csat_pct = agent.get("csat_pct")
+            a_rated = agent.get("surveys_rated", 0)
+            a_sent = agent.get("surveys_sent", 0)
+
+            csat_part = ""
+            if a_csat_pct is not None:
+                csat_str = f"{float(a_csat_pct):.0f}%"
+                csat_part = f"  ·  CSAT {csat_str} ({a_rated}/{a_sent})"
+            elif a_sent > 0:
+                csat_part = f"  ·  CSAT — ({a_rated}/{a_sent})"
+
+            lines.append(
+                f"• *{name}:* {a_closed} closed  ·  FRT {a_frt}  ·  RT {a_rt}{csat_part}"
+            )
+        lines.append("")
+
+    # ── Negative CSAT callout ─────────────────────────────────────────────────
+    if negatives_count > 0:
+        plural = "negative rating" if negatives_count == 1 else "negative ratings"
+        lines.append(
+            f":warning: *{negatives_count} {plural}* received yesterday. "
+            "Run `/csat L7` for full theme breakdown."
+        )
+        lines.append("")
+
+    lines.append("*Source:* Richpanel API  ·  business-hours metrics only")
+
     return "\n".join(lines)
