@@ -934,90 +934,212 @@ def format_attribution(data: dict) -> str:
     return "\n".join(lines)
 
 
+def _generate_csat_note(ticket: dict) -> str:
+    """
+    Use LLM to generate a 3-part CSAT note for a negative ticket.
+    Returns a formatted Slack block:
+      :star::star:: <customer situation>
+      Agent: <what agent did>
+      Takeaway: <root cause / context>
+      RPL: <url>
+    Falls back to a plain summary if LLM is unavailable.
+    """
+    import json as _json
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return _csat_note_fallback(ticket)
+
+    score_int = ticket.get("score_int", 1)
+    stars = ":star:" * score_int
+    csat_comment = ticket.get("csat_comment", "")
+    subject = ticket.get("subject", "")
+    agent_name = ticket.get("agent_name", "Agent")
+    url = ticket.get("url", "")
+    messages = ticket.get("messages", [])
+
+    # Build thread context for the LLM
+    thread_lines = []
+    for m in messages:
+        sender = "Customer" if m["sender"] == "customer" else "Agent"
+        thread_lines.append(f"{sender}: {m['text']}")
+    thread = "\n".join(thread_lines) if thread_lines else "(no messages available)"
+
+    system_prompt = (
+        "You are a customer service analyst for a premium menswear brand. "
+        "You will receive a support conversation that received a negative CSAT rating. "
+        "Write a concise 3-part note for the CS team's daily Slack report.\n\n"
+        "Return ONLY valid JSON with exactly these three keys:\n"
+        '{"customer": "One sentence: what the customer\'s issue was and why they were unhappy.", '
+        '"agent": "One sentence: what the agent did and whether they followed protocol.", '
+        '"takeaway": "One sentence: root cause or context — why the rating happened."}\n\n'
+        "Rules:\n"
+        "- Be factual and grounded in the conversation. Do not invent details.\n"
+        "- Keep each sentence concise (under 40 words).\n"
+        "- Do not use the customer's name."
+    )
+
+    user_prompt = (
+        f"Subject: {subject}\n"
+        f"CSAT rating: {score_int}/5 ({ticket.get('score_label', '')})\n"
+        f"Customer comment: {csat_comment or '(none)'}\n"
+        f"Agent: {agent_name}\n\n"
+        f"Conversation:\n{thread}"
+    )
+
+    try:
+        client = OpenAI()
+        resp = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            temperature=0.2,
+            max_tokens=400,
+        )
+        raw = resp.choices[0].message.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if raw.endswith("```"):
+            raw = raw[:-3]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        parsed = _json.loads(raw.strip())
+        customer_note = parsed.get("customer", "")
+        agent_note = parsed.get("agent", "")
+        takeaway = parsed.get("takeaway", "")
+    except Exception:
+        return _csat_note_fallback(ticket)
+
+    lines = [
+        f"{stars}: {customer_note}",
+        f"Agent: {agent_note}",
+        f"Takeaway: {takeaway}",
+    ]
+    if url:
+        lines.append(f"RPL: {url}")
+    return "\n".join(lines)
+
+
+def _csat_note_fallback(ticket: dict) -> str:
+    """Plain fallback when LLM is unavailable."""
+    score_int = ticket.get("score_int", 1)
+    stars = ":star:" * score_int
+    subject = ticket.get("subject", "(no subject)")
+    agent_name = ticket.get("agent_name", "Agent")
+    url = ticket.get("url", "")
+    csat_comment = ticket.get("csat_comment", "")
+    comment_part = f" Customer comment: \"{csat_comment}\"" if csat_comment else ""
+    lines = [
+        f"{stars}: {subject}.{comment_part}",
+        f"Agent: {agent_name} handled this conversation.",
+        f"Takeaway: Review conversation for context.",
+    ]
+    if url:
+        lines.append(f"RPL: {url}")
+    return "\n".join(lines)
+
+
 def format_daily(data: dict) -> str:
     """
     Format the /daily CS KPI report for Slack.
+    Matches the exact format specified:
 
-    Sections:
-      1. Header + date
-      2. Team totals (closed, FRT, RT, CSAT)
-      3. Per-agent breakdown
-      4. Negative CSAT callout (if any)
-      5. Source line
+      :chart_with_upwards_trend: CS KPIs & Updates | M/D/YYYY
+
+
+      Total tickets closed: N
+      Avg. tickets closed per agent: N
+      CSAT: X.X | Total surveys: N | Negatives: N
+      Avg. FRT (last 24 hrs): N mins
+      Avg. RT (last 24 hrs): N hr N mins
+
+
+      Notes on CSATs:
+
+
+      No negatives! :starmario:
+      (or per-negative LLM blocks)
+
+
+      :mag: FRT = First Response Time
+      :repeat: RT = Resolution Time
     """
     date_label = data.get("date_label", "yesterday")
     totals = data.get("totals", {})
-    by_agent = data.get("by_agent", [])
+    active_agents = data.get("active_agents", 0)
     negatives_count = data.get("negatives_count", 0)
+    negative_tickets = data.get("negative_tickets", [])
 
     closed = totals.get("closed", 0)
-    frt_avg = totals.get("frt_avg", "—")
-    frt_med = totals.get("frt_med", "—")
-    rt_avg = totals.get("rt_avg", "—")
-    rt_med = totals.get("rt_med", "—")
-    csat_pct = totals.get("csat_pct")
+    frt_display = totals.get("frt_avg_display", "—")
+    rt_display = totals.get("rt_avg_display", "—")
+    csat_score = totals.get("csat_score")
     surveys_sent = totals.get("surveys_sent", 0)
     surveys_rated = totals.get("surveys_rated", 0)
 
-    if closed == 0 and not by_agent:
+    if closed == 0:
         return (
-            f"*:bar_chart: Daily CS Report — {date_label}*\n\n"
-            "No ticket data found for this date.\n\n"
-            "*Source:* Richpanel API"
+            f":chart_with_upwards_trend: CS KPIs & Updates | {date_label}\n\n"
+            "No ticket data found for this date."
         )
 
+    # ── CSAT score display ────────────────────────────────────────────────────
+    # Show as avg score (1-5). When exactly 5.0 → "5:star:". Otherwise just the number.
+    if csat_score is not None:
+        score_f = float(csat_score)
+        if score_f == 5.0:
+            csat_str = "5:star:"
+        else:
+            csat_str = f"{score_f:.1f}"
+    else:
+        csat_str = "—"
+
+    # Negatives display: "0!" when zero, otherwise just the number
+    neg_display = f"{negatives_count}!" if negatives_count == 0 else str(negatives_count)
+
+    # Avg tickets per agent
+    avg_per_agent = round(closed / active_agents) if active_agents > 0 else closed
+
     lines = [
-        f"*:bar_chart: Daily CS Report — {date_label}*",
+        f":chart_with_upwards_trend: CS KPIs & Updates | {date_label}",
+        "",
+        "",
+        f"Total tickets closed: {closed}",
+        f"Avg. tickets closed per agent: {avg_per_agent}",
+        f"CSAT: {csat_str} | Total surveys: {surveys_rated} | Negatives: {neg_display}",
+        f"Avg. FRT (last 24 hrs): {frt_display}",
+        f"Avg. RT (last 24 hrs): {rt_display}",
+        "",
+        "",
+        "Notes on CSATs:",
+        "",
         "",
     ]
 
-    # ── Team totals ───────────────────────────────────────────────────────────
-    lines.append("*Team totals*")
-    lines.append(f"• *Tickets closed:* {closed}")
-    lines.append(f"• *FRT (BH):* avg {frt_avg}  ·  median {frt_med}")
-    lines.append(f"• *Resolution time (BH):* avg {rt_avg}  ·  median {rt_med}")
-
-    if csat_pct is not None:
-        csat_str = f"{float(csat_pct):.1f}%"
-        lines.append(f"• *CSAT:* {csat_str}  ({surveys_rated}/{surveys_sent} surveys rated)")
+    # ── CSAT notes section ────────────────────────────────────────────────────
+    if negatives_count == 0:
+        lines.append("No negatives! :starmario:")
     else:
-        lines.append(f"• *CSAT:* —  ({surveys_rated}/{surveys_sent} surveys rated)")
+        for i, ticket in enumerate(negative_tickets):
+            note = _generate_csat_note(ticket)
+            lines.append(note)
+            if i < len(negative_tickets) - 1:
+                lines.append("")  # blank line between multiple negatives
 
-    lines.append("")
-
-    # ── Per-agent breakdown ───────────────────────────────────────────────────
-    if by_agent:
-        lines.append("*By agent*")
-        for agent in by_agent:
-            name = agent["name"]
-            a_closed = agent["closed"]
-            a_frt = agent["frt_avg"]
-            a_rt = agent["rt_avg"]
-            a_csat_pct = agent.get("csat_pct")
-            a_rated = agent.get("surveys_rated", 0)
-            a_sent = agent.get("surveys_sent", 0)
-
-            csat_part = ""
-            if a_csat_pct is not None:
-                csat_str = f"{float(a_csat_pct):.0f}%"
-                csat_part = f"  ·  CSAT {csat_str} ({a_rated}/{a_sent})"
-            elif a_sent > 0:
-                csat_part = f"  ·  CSAT — ({a_rated}/{a_sent})"
-
+        # If we couldn't fetch the actual tickets but count > 0
+        if not negative_tickets:
+            plural = "negative" if negatives_count == 1 else "negatives"
             lines.append(
-                f"• *{name}:* {a_closed} closed  ·  FRT {a_frt}  ·  RT {a_rt}{csat_part}"
+                f"{negatives_count} {plural} received. Run `/csat L7` for details."
             )
-        lines.append("")
 
-    # ── Negative CSAT callout ─────────────────────────────────────────────────
-    if negatives_count > 0:
-        plural = "negative rating" if negatives_count == 1 else "negative ratings"
-        lines.append(
-            f":warning: *{negatives_count} {plural}* received yesterday. "
-            "Run `/csat L7` for full theme breakdown."
-        )
-        lines.append("")
-
-    lines.append("*Source:* Richpanel API  ·  business-hours metrics only")
+    lines += [
+        "",
+        "",
+        ":mag: FRT = First Response Time",
+        ":repeat: RT = Resolution Time",
+    ]
 
     return "\n".join(lines)

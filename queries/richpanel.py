@@ -15,8 +15,9 @@ Metrics pulled via POST /v1/reports/query:
 All time metrics are in milliseconds and converted to human-readable strings.
 
 Agent names are resolved via GET /v1/users (cached at module level per process).
-Negative CSAT conversations (rating 1-3) are counted and their subject lines
-fetched from Snowflake for LLM analysis (reuses existing CONVERSATIONS table).
+Negative CSAT conversations (Neutral/Bad/Terrible) are fetched via GET /v1/tickets
+and returned with subject, agent name, message thread, and Richpanel URL for
+LLM-based CSAT note generation.
 
 API key: RICHPANEL_API_KEY environment variable.
 """
@@ -42,6 +43,11 @@ _EXCLUDE_EMAILS = {
     "ram@richpanel.com",
 }
 
+# Richpanel CSAT score labels → numeric equivalents
+# "Amazing"=5, "Great"=4, "Neutral"=3, "Bad"=2, "Terrible"=1
+_NEGATIVE_SCORES = {"Neutral", "Bad", "Terrible"}
+_SCORE_TO_INT = {"Amazing": 5, "Great": 4, "Neutral": 3, "Bad": 2, "Terrible": 1}
+
 # Module-level cache so agent list is only fetched once per container lifetime
 _agent_cache: Optional[dict[str, str]] = None  # {id: display_name}
 
@@ -57,8 +63,19 @@ def _headers() -> dict:
     }
 
 
+def _get_headers() -> dict:
+    """Headers without content-type for GET requests."""
+    key = os.environ.get("RICHPANEL_API_KEY", "")
+    if not key:
+        raise EnvironmentError("RICHPANEL_API_KEY environment variable is not set")
+    return {
+        "accept": "application/json",
+        "x-richpanel-key": key,
+    }
+
+
 def _ms_to_human(ms: Optional[float]) -> str:
-    """Convert milliseconds to a human-readable string."""
+    """Convert milliseconds to a human-readable string (compact form for agent table)."""
     if ms is None or ms == 0:
         return "—"
     s = ms / 1000
@@ -71,6 +88,27 @@ def _ms_to_human(ms: Optional[float]) -> str:
     return f"{s / 86400:.1f}d"
 
 
+def _ms_to_daily_format(ms: Optional[float]) -> str:
+    """
+    Convert milliseconds to the /daily display format:
+      FRT  → whole minutes:  "8 mins"  (or "45 secs" if < 1 min)
+      RT   → hr/min:         "1 hr 25 mins"  (or "45 mins" if < 1 hr)
+    """
+    if ms is None or ms == 0:
+        return "—"
+    s = ms / 1000
+    if s < 60:
+        return f"{int(round(s))} secs"
+    if s < 3600:
+        mins = int(round(s / 60))
+        return f"{mins} mins"
+    hrs = int(s // 3600)
+    mins = int((s % 3600) // 60)
+    if mins == 0:
+        return f"{hrs} hr"
+    return f"{hrs} hr {mins} mins"
+
+
 def _get_agent_map() -> dict[str, str]:
     """Fetch agent ID → display name map. Cached per process."""
     global _agent_cache
@@ -78,7 +116,7 @@ def _get_agent_map() -> dict[str, str]:
         return _agent_cache
 
     try:
-        r = requests.get(f"{_BASE_URL}/users", headers=_headers(), timeout=10)
+        r = requests.get(f"{_BASE_URL}/users", headers=_get_headers(), timeout=10)
         r.raise_for_status()
         users = r.json().get("user", [])
         mapping = {}
@@ -132,6 +170,82 @@ def _extract_breakdowns(data: dict) -> list[dict]:
     return result
 
 
+def _get_negative_csat_tickets(target_date: date, agent_map: dict) -> list[dict]:
+    """
+    Fetch tickets closed on target_date that have a negative CSAT rating
+    (Neutral, Bad, or Terrible). Returns up to 5 tickets with:
+      - score_label: "Neutral" / "Bad" / "Terrible"
+      - score_int: 3 / 2 / 1
+      - csat_comment: customer's CSAT comment (may be empty)
+      - subject: ticket subject line
+      - agent_name: resolved agent display name
+      - url: Richpanel helpdesk URL
+      - messages: list of {sender: "customer"|"agent", text: str}
+    """
+    date_str = target_date.strftime("%Y-%m-%d")
+    negatives = []
+
+    try:
+        # Scan pages of closed tickets updated on the target date
+        for page in range(1, 8):
+            r = requests.get(
+                f"{_BASE_URL}/tickets",
+                headers=_get_headers(),
+                params={
+                    "status": "CLOSED",
+                    "per_page": 100,
+                    "order": "DESC",
+                    "sortKey": "updatedAt",
+                    "updated_at": date_str,
+                    "page": page,
+                },
+                timeout=10,
+            )
+            if not r.ok:
+                logger.warning(f"Tickets API page {page} returned {r.status_code}")
+                break
+
+            tickets = r.json().get("ticket", [])
+            if not tickets:
+                break
+
+            for t in tickets:
+                sr = t.get("satisfaction_rating", {})
+                score_label = sr.get("score", "")
+                if score_label not in _NEGATIVE_SCORES:
+                    continue
+
+                assignee_id = t.get("assignee_id", "")
+                agent_name = agent_map.get(assignee_id, "Unknown agent")
+
+                # Build message thread (customer + agent, up to 8 messages)
+                messages = []
+                for c in t.get("comments", [])[:8]:
+                    body = (c.get("plain_body") or "").strip()
+                    if not body:
+                        continue
+                    sender = "agent" if c.get("is_operator") else "customer"
+                    messages.append({"sender": sender, "text": body[:400]})
+
+                negatives.append({
+                    "score_label": score_label,
+                    "score_int": _SCORE_TO_INT.get(score_label, 1),
+                    "csat_comment": (sr.get("comment") or "").strip(),
+                    "subject": (t.get("subject") or "").strip(),
+                    "agent_name": agent_name,
+                    "url": t.get("url", ""),
+                    "messages": messages,
+                })
+
+                if len(negatives) >= 5:
+                    return negatives
+
+    except Exception as e:
+        logger.warning(f"Could not fetch negative CSAT tickets: {e}")
+
+    return negatives
+
+
 def get_daily_report(target_date: Optional[date] = None) -> dict:
     """
     Fetch all metrics for the /daily command.
@@ -140,17 +254,19 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         target_date: The date to report on. Defaults to yesterday.
 
     Returns a dict with:
-        date_label       str   e.g. "Tuesday, Jul 1"
-        totals           dict  {metric_name: value}
-        by_agent         list  [{name, closed, frt_avg, frt_med, rt_avg, rt_med, csat_pct, surveys_sent, surveys_rated}]
-        negatives_count  int   number of low-CSAT ratings (1-3) on that day
-        source           str
+        date_label           str   e.g. "Tuesday, Jul 1"
+        date                 str   ISO date
+        totals               dict  team-level metrics
+        by_agent             list  per-agent breakdown (for /agentsdaily)
+        negatives_count      int   number of low-CSAT ratings
+        negative_tickets     list  full ticket details for negative CSATs
+        source               str
     """
     if target_date is None:
         target_date = date.today() - timedelta(days=1)
 
     date_str = target_date.isoformat()
-    date_label = target_date.strftime("%A, %b %-d")
+    date_label = target_date.strftime("%-m/%-d/%Y")  # e.g. "6/29/2026"
 
     agent_map = _get_agent_map()
 
@@ -198,8 +314,14 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
     vol_totals = _extract_totals(volume_data)
     csat_totals = _extract_totals(csat_data)
 
+    closed_total = int(vol_totals.get("closed_conversations", 0))
+
     totals = {
-        "closed": int(vol_totals.get("closed_conversations", 0)),
+        "closed": closed_total,
+        # daily-format versions (whole mins / hr+min)
+        "frt_avg_display": _ms_to_daily_format(vol_totals.get("first_response_time_bh")),
+        "rt_avg_display": _ms_to_daily_format(vol_totals.get("time_to_first_resolution_bh")),
+        # compact versions kept for /agentsdaily
         "frt_avg": _ms_to_human(vol_totals.get("first_response_time_bh")),
         "frt_med": _ms_to_human(vol_totals.get("p50_first_response_time_bh")),
         "rt_avg": _ms_to_human(vol_totals.get("time_to_first_resolution_bh")),
@@ -210,8 +332,7 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         "surveys_rated": int(csat_totals.get("csat_surveys_rated", 0)),
     }
 
-    # ── Per-agent breakdown ───────────────────────────────────────────────────
-    # Build lookup dicts keyed by agent_id
+    # ── Per-agent breakdown (for /agentsdaily) ───────────────────────────────
     vol_by_agent: dict[str, dict] = {
         b["agent_id"]: b["metrics"] for b in _extract_breakdowns(volume_data)
     }
@@ -219,13 +340,12 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         b["agent_id"]: b["metrics"] for b in _extract_breakdowns(csat_data)
     }
 
-    # Merge — only include agents that appear in the volume breakdown
     by_agent = []
     for agent_id, vol_metrics in vol_by_agent.items():
         name = agent_map.get(agent_id, agent_id[:8])
         closed = int(vol_metrics.get("closed_conversations", 0))
         if closed == 0:
-            continue  # skip agents with no activity
+            continue
         csat_metrics = csat_by_agent.get(agent_id, {})
         by_agent.append({
             "name": name,
@@ -238,15 +358,23 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
             "surveys_sent": int(csat_metrics.get("csat_surveys_sent", 0)),
             "surveys_rated": int(csat_metrics.get("csat_surveys_rated", 0)),
         })
-
-    # Sort by closed desc
     by_agent.sort(key=lambda x: x["closed"], reverse=True)
+
+    # Active agent count = number of agents with at least 1 closed ticket
+    active_agents = len(by_agent)
+
+    # ── Negative CSAT ticket details ─────────────────────────────────────────
+    negative_tickets = []
+    if negatives_count > 0:
+        negative_tickets = _get_negative_csat_tickets(target_date, agent_map)
 
     return {
         "date_label": date_label,
         "date": date_str,
         "totals": totals,
+        "active_agents": active_agents,
         "by_agent": by_agent,
         "negatives_count": negatives_count,
+        "negative_tickets": negative_tickets,
         "source": "Richpanel API",
     }
