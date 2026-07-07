@@ -1103,24 +1103,24 @@ def format_daily(data: dict) -> str:
     avg_per_agent = round(closed / active_agents) if active_agents > 0 else closed
 
     lines = [
-        f":chart_with_upwards_trend: CS KPIs & Updates | {date_label}",
+        f"*:chart_with_upwards_trend: CS KPIs & Updates | {date_label}*",
         "",
         "",
-        f"Total tickets closed: {closed}",
-        f"Avg. tickets closed per agent: {avg_per_agent}",
-        f"CSAT: {csat_str} | Total surveys: {surveys_rated} | Negatives: {neg_display}",
-        f"Avg. FRT (last 24 hrs): {frt_display}",
-        f"Avg. RT (last 24 hrs): {rt_display}",
+        f"• Total tickets closed: {closed}",
+        f"• Avg. tickets closed per agent: {avg_per_agent}",
+        f"• CSAT: {csat_str} | Total surveys: {surveys_rated} | Negatives: {neg_display}",
+        f"• Avg. FRT (last 24 hrs): {frt_display}",
+        f"• Avg. RT (last 24 hrs): {rt_display}",
         "",
         "",
-        "Notes on CSATs:",
+        "*Notes on CSATs:*",
         "",
         "",
     ]
 
     # ── CSAT notes section ────────────────────────────────────────────────────
     if negatives_count == 0:
-        lines.append("No negatives! :starmario:")
+        lines.append("No negatives! :star:")
     else:
         for i, ticket in enumerate(negative_tickets):
             note = _generate_csat_note(ticket)
