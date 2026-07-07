@@ -263,7 +263,7 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         source               str
     """
     if target_date is None:
-        target_date = date.today() - timedelta(days=1)
+        target_date = date.today()
 
     date_str = target_date.isoformat()
     date_label = target_date.strftime("%-m/%-d/%Y")  # e.g. "6/29/2026"
@@ -275,7 +275,7 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         "startDate": date_str,
         "endDate": date_str,
         "metrics": [
-            "closed_conversations",
+            "closed_conversations_all_agent",
             "first_response_time_bh",
             "p50_first_response_time_bh",
             "time_to_first_resolution_bh",
@@ -314,7 +314,7 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
     vol_totals = _extract_totals(volume_data)
     csat_totals = _extract_totals(csat_data)
 
-    closed_total = int(vol_totals.get("closed_conversations", 0))
+    closed_total = int(vol_totals.get("closed_conversations_all_agent", 0))
 
     totals = {
         "closed": closed_total,
@@ -343,7 +343,7 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
     by_agent = []
     for agent_id, vol_metrics in vol_by_agent.items():
         name = agent_map.get(agent_id, agent_id[:8])
-        closed = int(vol_metrics.get("closed_conversations", 0))
+        closed = int(vol_metrics.get("closed_conversations_all_agent", 0))
         if closed == 0:
             continue
         csat_metrics = csat_by_agent.get(agent_id, {})
