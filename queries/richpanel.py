@@ -25,6 +25,7 @@ import os
 import logging
 from datetime import date, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -263,7 +264,7 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         source               str
     """
     if target_date is None:
-        target_date = date.today()
+        target_date = date.today(ZoneInfo("America/New_York"))
 
     date_str = target_date.isoformat()
     date_label = target_date.strftime("%-m/%-d/%Y")  # e.g. "6/29/2026"
