@@ -23,7 +23,7 @@ API key: RICHPANEL_API_KEY environment variable.
 """
 import os
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
 
@@ -264,7 +264,7 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         source               str
     """
     if target_date is None:
-        target_date = date.today(ZoneInfo("America/New_York"))
+        target_date = datetime.now(ZoneInfo("America/New_York")).date()
 
     date_str = target_date.isoformat()
     date_label = target_date.strftime("%-m/%-d/%Y")  # e.g. "6/29/2026"
