@@ -44,6 +44,9 @@ _EXCLUDE_EMAILS = {
     "ram@richpanel.com",
 }
 
+# Core CS agents — only these 5 are counted in the avg tickets per agent calculation
+_CORE_AGENTS = {"Josue", "Maite", "Alexander", "Alicia", "Kelvin"}
+
 # Richpanel CSAT score labels → numeric equivalents
 # "Amazing"=5, "Great"=4, "Neutral"=3, "Bad"=2, "Terrible"=1
 _NEGATIVE_SCORES = {"Neutral", "Bad", "Terrible"}
@@ -361,8 +364,10 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
         })
     by_agent.sort(key=lambda x: x["closed"], reverse=True)
 
-    # Active agent count = number of agents with at least 1 closed ticket
-    active_agents = len(by_agent)
+    # Active agent count = core CS agents who closed at least 1 ticket today
+    active_agents = sum(1 for a in by_agent if a["name"] in _CORE_AGENTS and a["closed"] > 0)
+    if active_agents == 0:
+        active_agents = len(by_agent)  # fallback if none of the core agents worked today
 
     # ── Negative CSAT ticket details ─────────────────────────────────────────
     negative_tickets = []
