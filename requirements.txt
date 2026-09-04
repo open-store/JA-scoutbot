@@ -5,4 +5,4 @@ openai==2.32.0
 python-dotenv==1.2.2
 slack_bolt==1.28.0
 slack_sdk==3.41.0
-snowflake-connector-python==4.4.0
+snowflake-connector-python==4.7.1
