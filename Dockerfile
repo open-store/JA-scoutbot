@@ -17,7 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy all application code (uses .dockerignore to exclude secrets)
 COPY . .
 
-# Railway injects environment variables — no .env file needed in production
+# On the VM, environment variables come from /etc/scout.env
 # The bot reads from os.environ directly
 
 CMD ["python", "scout_bot.py"]

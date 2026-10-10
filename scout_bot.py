@@ -36,7 +36,7 @@ from queries.returns import run_returns
 from queries.richpanel import get_daily_report
 from nl_router import route_natural_language, build_command_from_routing
 
-load_dotenv()  # no-op in Cloud Run/Railway; loads .env in local dev
+load_dotenv()  # loads .env in local dev; on the VM, env vars come from /etc/scout.env
 
 logging.basicConfig(
     level=logging.INFO,
@@ -423,11 +423,11 @@ def handle_dm(event, client):
 
 
 # ---------------------------------------------------------------------------
-# Health check server (required by Cloud Run startup probe)
+# Health check server (port 8080)
 # ---------------------------------------------------------------------------
 
 class HealthHandler(BaseHTTPRequestHandler):
-    """Minimal HTTP server so Cloud Run's startup probe gets a 200 OK."""
+    """Minimal HTTP server that answers GET with 200 OK."""
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
@@ -449,7 +449,7 @@ def start_health_server():
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    # Start health check HTTP server in background (required for Cloud Run)
+    # Start the health check HTTP server in the background (port 8080)
     health_thread = threading.Thread(target=start_health_server, daemon=True)
     health_thread.start()
 

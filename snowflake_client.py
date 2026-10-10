@@ -10,7 +10,7 @@ from cryptography.hazmat.backends import default_backend
 from dotenv import load_dotenv
 from typing import Any
 
-# Load .env if present (local dev); Cloud Run/Railway inject env vars directly
+# Load .env if present (local dev). On the VM, env vars come from /etc/scout.env.
 load_dotenv()  # no-op in production; loads .env in local dev
 
 
@@ -19,14 +19,14 @@ def _get_private_key() -> bytes:
     Load the RSA private key for Snowflake authentication.
     Supports two modes:
       1. SNOWFLAKE_RSA_KEY_PATH — path to a .p8 file (local dev)
-      2. SNOWFLAKE_RSA_KEY_CONTENT — PEM content as a string (Railway/cloud)
+      2. SNOWFLAKE_RSA_KEY_CONTENT — PEM content as a string (from /etc/scout.env on the VM)
     """
     passphrase_str = os.environ.get("SNOWFLAKE_RSA_KEY_PASSPHRASE", "")
     passphrase = passphrase_str.encode() if passphrase_str else None
 
     key_content = os.environ.get("SNOWFLAKE_RSA_KEY_CONTENT")
     if key_content:
-        # Cloud deployment: key content passed as env var
+        # On the VM, key content is passed as an env var from /etc/scout.env
         # Replace literal \n with actual newlines in case it was set that way
         key_bytes = key_content.replace("\\n", "\n").encode()
     else:
