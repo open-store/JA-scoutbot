@@ -9,9 +9,6 @@
 debug_*.py
 explore_*.py
 test_*.py
-set_railway_vars.py
-set_new_railway_vars.py
-fix_railway_envvars.py
 kno_auth_debug.md
 *_notes.md
 *_api_notes.md
