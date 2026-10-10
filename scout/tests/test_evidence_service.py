@@ -1,6 +1,4 @@
 """Tests for evidence cleaning, filtering, dedup, and ranking."""
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from scout.services.evidence_service import (
     clean_message_body,

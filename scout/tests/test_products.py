@@ -1,7 +1,4 @@
 """Tests for product alias resolution."""
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
 from scout.taxonomy.products import resolve_aliases, canonical_name, normalise
 
 

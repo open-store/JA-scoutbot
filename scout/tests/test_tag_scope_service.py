@@ -1,6 +1,4 @@
 """Tests for tag scope resolution."""
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from scout.taxonomy.tags import tag_names_for_group, all_group_names, groups_for_tag
 from scout.services.tag_scope_service import resolve_tag_group_to_uuids, list_available_groups

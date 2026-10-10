@@ -2,7 +2,7 @@
 Tag taxonomy: groups known Richpanel tags into business-relevant scopes.
 
 Tags are stored as UUID arrays in CONVERSATIONS.TAGS and resolved via
-tag_mapping.TAG_ID_TO_NAME.  This module provides the reverse mapping
+scout.taxonomy.tag_ids.TAG_ID_TO_NAME.  This module provides the reverse mapping
 (tag-name → scope) so the pipeline can retrieve candidate conversations
 by scope without hard-coding UUIDs everywhere.
 

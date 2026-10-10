@@ -13,33 +13,18 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Set
 
-# Use the existing shared Snowflake client
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from snowflake_client import execute_query_dict
-from tag_mapping import TAG_ID_TO_NAME
+from scout.integrations.snowflake import execute_query_dict
+from scout.sql import autoreply_exclusion
+from scout.taxonomy.tag_ids import TAG_NAME_TO_UUIDS
 
 logger = logging.getLogger("scout.repository.product_feedback")
-
-# Reverse mapping: tag name → set of UUIDs (some names map to multiple UUIDs)
-_TAG_NAME_TO_UUIDS: Dict[str, List[str]] = {}
-for _uuid, _name in TAG_ID_TO_NAME.items():
-    _TAG_NAME_TO_UUIDS.setdefault(_name, []).append(_uuid)
 
 
 # ---------------------------------------------------------------------------
 # SQL fragments
 # ---------------------------------------------------------------------------
 
-_AUTOREPLY_EXCLUSION = """
-    AND LOWER(c.SUBJECT) NOT LIKE '%automatic reply%'
-    AND LOWER(c.SUBJECT) NOT LIKE '%autoreply%'
-    AND LOWER(c.SUBJECT) NOT LIKE '%auto-reply%'
-    AND LOWER(c.SUBJECT) NOT LIKE '%out of office%'
-    AND LOWER(c.SUBJECT) NOT LIKE '%vacation%'
-    AND LOWER(c.SUBJECT) NOT LIKE '%away from the office%'
-    AND LOWER(c.SUBJECT) NOT LIKE '%unsubscribe%'
-"""
+_AUTOREPLY_EXCLUSION = autoreply_exclusion("c", indent="    ")
 
 _CUSTOMER_AUTHORED_FILTER = """
     AND m.AUTHOR_ID = c.CUSTOMER_ID
@@ -65,7 +50,7 @@ def _tag_names_to_uuids(tag_names: Set[str]) -> List[str]:
     """Resolve a set of tag names to their Richpanel UUIDs."""
     uuids: List[str] = []
     for name in tag_names:
-        uuids.extend(_TAG_NAME_TO_UUIDS.get(name, []))
+        uuids.extend(TAG_NAME_TO_UUIDS.get(name, []))
     return uuids
 
 

@@ -1,6 +1,6 @@
 # Natural-language routing
 
-`nl_router.py` turns a free-text question into a slash-style command. `scout_bot.execute_natural_language` is the only caller on the live path. It runs for @mentions and direct messages.
+`scout/routing/nl_router.py` turns a free-text question into a slash-style command. A future question-type router replaces `route_natural_language`; see [question router](question-router.md). `scout_bot.execute_natural_language` is the only caller on the live path. It runs for @mentions and direct messages.
 
 ## Flow
 
@@ -26,7 +26,7 @@ If the OpenAI call throws, or `OPENAI_API_KEY` is missing, `_keyword_fallback` r
 
 Allowed `command` values in the prompt: `CSAT`, `VOC`, `Errors`, `NPS`, `PPS`, `Attribution`, `Returns`, `Reviews`, `Help`.
 
-Allowed `timeframe` values: `L7`, `L30`, `L180`. The prompt tells the model to default to `L30` when the user gives no window. Slash commands are different: `command_parser` defaults to `L7`.
+Allowed `timeframe` values: `L7`, `L30`, `L180`. The prompt tells the model to default to `L30` when the user gives no window. Slash commands are different: `scout.routing.command_parser` defaults to `L7`.
 
 `confidence` is `high`, `medium`, or `low`. Only `low` changes the Slack reply.
 

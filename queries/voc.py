@@ -16,21 +16,12 @@ Product queries use the pre-scoped IDs, so auto-reply filtering is handled
 upstream by the product-feedback repository.
 """
 
-from command_parser import ParsedCommand
-from snowflake_client import execute_query_dict
-from tag_mapping import TAG_ID_TO_NAME
+from scout.integrations.snowflake import execute_query_dict
+from scout.routing.command_parser import ParsedCommand
+from scout.sql import autoreply_exclusion
+from scout.taxonomy.tag_ids import TAG_ID_TO_NAME
 
 
-# SQL fragment to exclude auto-replies and marketing noise from all non-product VOC queries
-_AUTOREPLY_EXCLUSION = """
-      AND LOWER(SUBJECT) NOT LIKE '%automatic reply%'
-      AND LOWER(SUBJECT) NOT LIKE '%autoreply%'
-      AND LOWER(SUBJECT) NOT LIKE '%auto-reply%'
-      AND LOWER(SUBJECT) NOT LIKE '%out of office%'
-      AND LOWER(SUBJECT) NOT LIKE '%vacation%'
-      AND LOWER(SUBJECT) NOT LIKE '%away from the office%'
-      AND LOWER(SUBJECT) NOT LIKE '%unsubscribe%'
-"""
 
 
 def _build_filter_clause(
@@ -144,7 +135,7 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
 
     # Auto-reply exclusion only needed for general queries;
     # product queries use pre-scoped IDs (auto-replies already excluded upstream)
-    autoreply_clause = _AUTOREPLY_EXCLUSION if not is_product_query else ""
+    autoreply_clause = autoreply_exclusion() if not is_product_query else ""
 
     filter_sql, filter_label = _build_filter_clause(cmd, conversation_ids=conversation_ids)
 

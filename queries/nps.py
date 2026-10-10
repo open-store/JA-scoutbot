@@ -13,24 +13,12 @@ Key notes:
 - Surveys are kept separate — never aggregate NPS across surveys.
 """
 
-import os
-import sys
 import json
-from datetime import datetime, timedelta, timezone
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from snowflake_client import get_connection
+from scout.integrations.knocommerce import SURVEY_IDS, date_range as _date_range, fqn
+from scout.integrations.snowflake import get_connection
+from scout.llm import MODEL, get_client
 
-DB = "ANALYTICS"
-SCHEMA = "KNOCOMMERCE__NPS___SURVEYS_"
-
-# Target survey IDs (live surveys only)
-SURVEY_IDS = {
-    "NPS Survey": "61e08ea9-7cb0-4e81-aea5-39c0cf0d7e84",
-    "NPS Survey Copy": "e69d0c24-ad9c-449b-bf31-4f10867eb06d",
-    "Returning Customer PPS": "81361b00-a8c6-4957-a632-838e133dace1",
-    "PPS - New Customers": "1dd68a35-2c53-4822-9068-04dd7678d990",
-}
 
 # NPS-bearing surveys (have a "recommend" NPS question)
 NPS_SURVEYS = ["NPS Survey", "NPS Survey Copy", "Returning Customer PPS", "PPS - New Customers"]
@@ -71,17 +59,6 @@ POSITIVE_THEMES = [
     "Fast delivery",
     "Easy shopping experience",
 ]
-
-
-def fqn(table):
-    return f'"{DB}"."{SCHEMA}"."{table}"'
-
-
-def _date_range(days: int):
-    """Return (start_date, end_date) strings for the last N days."""
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
-    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
 
 def get_nps_scores(days: int = 30) -> dict:
@@ -295,8 +272,7 @@ def classify_themes_with_llm(comments: list, segment: str = "detractor") -> list
     if len(comments) < 10:
         return []
 
-    from openai import OpenAI
-    client = OpenAI()
+    client = get_client()
 
     if segment == "detractor":
         theme_list = "\n".join(f"- {t}" for t in COMPLAINT_THEMES)
@@ -323,7 +299,7 @@ def classify_themes_with_llm(comments: list, segment: str = "detractor") -> list
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model=MODEL,
             messages=[
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": f"Comments:\n{comments_text}"},

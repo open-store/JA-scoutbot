@@ -61,7 +61,7 @@ A broader filter also exists in that file. It excludes known agent and system au
 
 ## Tags
 
-`TAGS` is a JSON array of UUID strings. Resolution to names is the dict `TAG_ID_TO_NAME` in `tag_mapping.py`. Scope groups (product feedback, shipping, and the rest) are tag names in `scout/taxonomy/tags.py`.
+`TAGS` is a JSON array of UUID strings. Resolution to names is the dict `TAG_ID_TO_NAME` in `scout/taxonomy/tag_ids.py`. Scope groups (product feedback, shipping, and the rest) are tag names in `scout/taxonomy/tags.py`.
 
 Frequency queries flatten the array:
 

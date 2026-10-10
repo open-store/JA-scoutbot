@@ -3,8 +3,8 @@ Scout CSAT Query Module
 Generates and executes CSAT queries against Snowflake.
 """
 
-from command_parser import ParsedCommand
-from snowflake_client import execute_query_dict
+from scout.integrations.snowflake import execute_query_dict
+from scout.routing.command_parser import ParsedCommand
 
 
 def run_csat(cmd: ParsedCommand) -> dict:

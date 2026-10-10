@@ -9,8 +9,8 @@ Status of the work that used to live in the root README and in the agent notes. 
 | NPS by survey | `/nps`, `queries/nps.py`. Reads Snowflake, not the KnoCommerce HTTP API |
 | Returning-customer post-purchase survey | `/pps`, `queries/pps.py` |
 | New-customer attribution | `/attribution`, `queries/pps.py` |
-| Daily CS KPIs | `/daily`, `queries/richpanel.py` |
-| Natural-language routing for NPS, PPS, attribution, returns, and reviews | `nl_router.py` |
+| Daily CS KPIs | `/daily`, `scout/integrations/richpanel.py` |
+| Natural-language routing for NPS, PPS, attribution, returns, and reviews | `scout/routing/nl_router.py` |
 | Product VOC with a shared conversation scope | `scout/services/voc_service.py` |
 
 A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`, `/pps`, and `/attribution`.
@@ -33,8 +33,8 @@ A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`
 
 ### Taxonomy and structure
 
-- Move `tag_mapping.TAG_ID_TO_NAME` into `scout/taxonomy/` and keep one name-to-UUID map. Do not change which tag names sit in which group as part of that move.
-- The root still has dead entry points (`bot_server.py`, `scout.py`, `product_feedback.py`) and a large `formatters.py`. Splitting formatters, and moving SQL behind repositories, is follow-up work. It is not required for the docs layout.
+- Tag UUIDs live in `scout/taxonomy/tag_ids.py` (`TAG_ID_TO_NAME` and one `TAG_NAME_TO_UUIDS`). Do not change which tag names sit in which group; that changes VOC output.
+- `scout_bot.py` is the only root Python module. `scout.py` is deleted. Formatters are `scout/formatting/`. Moving the rest of `queries/` under `scout/` is still optional.
 - Product aliases are maintained in `scout/taxonomy/products.py`. A Shopify or CSV catalog is not wired up.
 
 ### Known behavioural gaps (do not "fix" silently)

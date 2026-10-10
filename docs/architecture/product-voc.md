@@ -41,7 +41,7 @@ The merged dict matches `run_voc()` and adds a `product_feedback` object: headli
 
 An empty result uses mode `empty`.
 
-Tag names come from the `product_feedback` group in `scout/taxonomy/tags.py`. Those names are resolved to UUIDs through `tag_mapping.TAG_ID_TO_NAME`. Product aliases come from `scout/taxonomy/products.py`.
+Tag names come from the `product_feedback` group in `scout/taxonomy/tags.py`. Those names are resolved to UUIDs through `scout.taxonomy.tag_ids.TAG_ID_TO_NAME`. Product aliases come from `scout/taxonomy/products.py`.
 
 Customer-authored messages for synthesis use `AUTHOR_ID = CUSTOMER_ID`. Evidence cleaning (HTML leftovers, signatures, survey boilerplate) lives in `scout/services/evidence_service.py`. Theme synthesis calls the OpenAI client from `product_feedback_service.py`.
 

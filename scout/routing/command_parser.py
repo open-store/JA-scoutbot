@@ -1,6 +1,8 @@
 """
-Scout Command Parser
-Parses slash commands and natural language queries into structured intents.
+Slash-command parser.
+
+Turns ``/csat L30`` style text into ``ParsedCommand``. Plain English goes
+through ``scout.routing.nl_router``, not this module.
 """
 
 import re
@@ -146,54 +148,3 @@ def parse_command(raw_input: str) -> ParsedCommand:
         filters=filters,
         raw_input=raw_input,
     )
-
-
-def parse_natural_language(text: str) -> ParsedCommand:
-    """
-    Attempt to map a natural language question to a Scout command.
-    Returns a ParsedCommand with best-guess intent.
-    """
-    text_lower = text.lower().strip()
-    
-    # Attribution-related (new customer PPS — check before NPS)
-    attribution_keywords = ["how are people finding", "how did they find", "attribution", "acquisition channel",
-                             "where are customers coming from", "how did you hear", "new customer survey",
-                             "first time buyer", "first-time buyer", "how they found us"]
-    if any(kw in text_lower for kw in attribution_keywords):
-        return ParsedCommand(command="attribution", raw_input=text)
-
-    # PPS returning-related (check before NPS)
-    pps_returning_keywords = ["returning customer survey", "why do people come back", "why did they come back",
-                               "what made customers come back", "why do people repurchase", "repeat purchase",
-                               "what almost stopped", "pps returning", "returning pps"]
-    if any(kw in text_lower for kw in pps_returning_keywords):
-        return ParsedCommand(command="pps", filters={"segment": "returning"}, raw_input=text)
-
-    # NPS-related
-    nps_keywords = ["nps", "promoter", "detractor", "passive", "survey comment", "knocommerce",
-                    "net promoter", "nps score", "nps theme", "customer loyalty", "recommend"]
-    if any(kw in text_lower for kw in nps_keywords):
-        return ParsedCommand(command="nps", raw_input=text)
-    
-    # Returns-related
-    return_keywords = ["return", "refund", "exchange", "redo", "fit issue", "damaged"]
-    if any(kw in text_lower for kw in return_keywords):
-        return ParsedCommand(command="returns", raw_input=text)
-    
-    # Reviews-related
-    review_keywords = ["review", "star rating", "okendo", "product review"]
-    if any(kw in text_lower for kw in review_keywords):
-        return ParsedCommand(command="reviews", raw_input=text)
-    
-    # CSAT-related
-    csat_keywords = ["csat", "satisfaction", "customer sat"]
-    if any(kw in text_lower for kw in csat_keywords):
-        return ParsedCommand(command="csat", raw_input=text)
-    
-    # Error-related
-    error_keywords = ["error", "bug", "broken", "checkout issue", "payment issue", "discount code"]
-    if any(kw in text_lower for kw in error_keywords):
-        return ParsedCommand(command="errors", raw_input=text)
-    
-    # Default to VOC
-    return ParsedCommand(command="voc", raw_input=text)

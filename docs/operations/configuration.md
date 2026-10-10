@@ -26,7 +26,7 @@ Copy `.env.example` to `.env` for local development. Production reads the same n
 | `SNOWFLAKE_RSA_KEY_CONTENT` | production | PEM text of the RSA private key. Use this on the VM |
 | `SNOWFLAKE_RSA_KEY_PATH` | local, if content is unset | Filesystem path of the key file |
 
-`snowflake_client.py` prefers `SNOWFLAKE_RSA_KEY_CONTENT` and falls back to `SNOWFLAKE_RSA_KEY_PATH`. There is no base64 private-key variable.
+`scout/integrations/snowflake.py` prefers `SNOWFLAKE_RSA_KEY_CONTENT` and falls back to `SNOWFLAKE_RSA_KEY_PATH`. There is no base64 private-key variable.
 
 ## Other services
 
@@ -36,7 +36,7 @@ Copy `.env.example` to `.env` for local development. Production reads the same n
 | `OKENDO_SUBSCRIBER_ID` | for `/reviews` | Basic-auth username |
 | `OKENDO_API_KEY` | for `/reviews` | Basic-auth password |
 | `OPENAI_API_KEY` | for NL routing and product synthesis | Read by the OpenAI SDK. If it is missing, routing uses the keyword fallback |
-| `OPENAI_BASE_URL` | no | Optional SDK base URL. `nl_router.py` does not read it directly; the SDK does |
+| `OPENAI_BASE_URL` | no | Optional SDK base URL. `scout/routing/nl_router.py` does not read it directly; the SDK does |
 | `PORT` | no | Health-check port. Default `8080` |
 
 ## Names the bot does not read

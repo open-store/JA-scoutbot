@@ -3,8 +3,8 @@ Scout Errors Query Module
 Identifies error-related customer issues from Snowflake.
 """
 
-from command_parser import ParsedCommand
-from snowflake_client import execute_query_dict
+from scout.integrations.snowflake import execute_query_dict
+from scout.routing.command_parser import ParsedCommand
 
 
 # Error-related keywords to search in subjects
