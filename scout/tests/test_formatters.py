@@ -1,8 +1,5 @@
 """Tests for the product feedback section of format_voc."""
-import sys, os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
-from formatters import format_voc
+from scout.formatting import format_voc
 
 
 def _base_voc_data(**overrides):

@@ -4,23 +4,11 @@ Uses an LLM to parse free-form user questions into structured Scout commands.
 Falls back to keyword-based routing if the LLM is unavailable.
 """
 
-import os
 import json
 import logging
-from openai import OpenAI
+from scout.llm import MODEL, get_client
 
 logger = logging.getLogger("scout.nl_router")
-
-# OpenAI client (uses OPENAI_API_KEY and OPENAI_BASE_URL from environment)
-_client = None
-
-
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI()
-    return _client
-
 
 SYSTEM_PROMPT = """You are Scout's intent classifier. Your job is to map a user's natural language question into a structured Scout command.
 
@@ -77,11 +65,15 @@ def route_natural_language(text: str) -> dict:
     Use LLM to classify a natural language query into a Scout command.
     Returns a dict with keys: command, timeframe, filters, confidence, reasoning.
     Falls back to keyword routing on failure.
+
+    This is the plug-in point for a future question-type router. Replace
+    this function; do not change slash-command dispatch. See
+    docs/architecture/question-router.md.
     """
     try:
-        client = _get_client()
+        client = get_client()
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model=MODEL,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": text},

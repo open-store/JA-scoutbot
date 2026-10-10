@@ -1,6 +1,6 @@
 # Snowflake
 
-`snowflake_client.py` opens one short-lived connection per query. Authentication is an RSA private key. The passphrase is `SNOWFLAKE_RSA_KEY_PASSPHRASE` (empty if the key is not encrypted).
+`scout/integrations/snowflake.py` opens one short-lived connection per query. Authentication is an RSA private key. The passphrase is `SNOWFLAKE_RSA_KEY_PASSPHRASE` (empty if the key is not encrypted).
 
 Key loading order:
 

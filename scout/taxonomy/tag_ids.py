@@ -1,4 +1,8 @@
-"""Tag ID to Name mapping from Richpanel."""
+"""Richpanel tag UUID ↔ name map.
+
+Moved from the root ``tag_mapping`` module. Group membership lives in
+``scout.taxonomy.tags`` and is not changed here.
+"""
 
 TAG_ID_TO_NAME = {
   "019b1280-35ac-4173-bc51-e7e12160e7af": "inquiry",
@@ -105,3 +109,9 @@ TAG_ID_TO_NAME = {
   "fa699e4e-0b14-4af3-9013-ebb03504ca86": "web_issues",
   "fd148553-4417-456b-b7d6-555c95b63274": "comment"
 }
+
+
+# One reverse map. Insertion order matches the old per-module loops.
+TAG_NAME_TO_UUIDS: dict[str, list[str]] = {}
+for _uuid, _name in TAG_ID_TO_NAME.items():
+    TAG_NAME_TO_UUIDS.setdefault(_name, []).append(_uuid)

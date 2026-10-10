@@ -56,26 +56,18 @@ _SCORE_TO_INT = {"Amazing": 5, "Great": 4, "Neutral": 3, "Bad": 2, "Terrible": 1
 _agent_cache: Optional[dict[str, str]] = None  # {id: display_name}
 
 
-def _headers() -> dict:
+def _headers(*, json: bool = False) -> dict:
+    """Richpanel auth headers. POST requests also send content-type."""
     key = os.environ.get("RICHPANEL_API_KEY", "")
     if not key:
         raise EnvironmentError("RICHPANEL_API_KEY environment variable is not set")
-    return {
-        "accept": "application/json",
-        "content-type": "application/json",
-        "x-richpanel-key": key,
-    }
-
-
-def _get_headers() -> dict:
-    """Headers without content-type for GET requests."""
-    key = os.environ.get("RICHPANEL_API_KEY", "")
-    if not key:
-        raise EnvironmentError("RICHPANEL_API_KEY environment variable is not set")
-    return {
+    headers = {
         "accept": "application/json",
         "x-richpanel-key": key,
     }
+    if json:
+        headers["content-type"] = "application/json"
+    return headers
 
 
 def _ms_to_human(ms: Optional[float]) -> str:
@@ -120,7 +112,7 @@ def _get_agent_map() -> dict[str, str]:
         return _agent_cache
 
     try:
-        r = requests.get(f"{_BASE_URL}/users", headers=_get_headers(), timeout=10)
+        r = requests.get(f"{_BASE_URL}/users", headers=_headers(), timeout=10)
         r.raise_for_status()
         users = r.json().get("user", [])
         mapping = {}
@@ -149,7 +141,7 @@ def _query(payload: dict) -> dict:
     """POST /v1/reports/query and return the data dict."""
     r = requests.post(
         f"{_BASE_URL}/reports/query",
-        headers=_headers(),
+        headers=_headers(json=True),
         json=payload,
         timeout=15,
     )
@@ -194,7 +186,7 @@ def _get_negative_csat_tickets(target_date: date, agent_map: dict) -> list[dict]
         for page in range(1, 8):
             r = requests.get(
                 f"{_BASE_URL}/tickets",
-                headers=_get_headers(),
+                headers=_headers(),
                 params={
                     "status": "CLOSED",
                     "per_page": 100,
@@ -373,6 +365,9 @@ def get_daily_report(target_date: Optional[date] = None) -> dict:
     negative_tickets = []
     if negatives_count > 0:
         negative_tickets = _get_negative_csat_tickets(target_date, agent_map)
+        from scout.services.daily_notes import generate_csat_note
+        for ticket in negative_tickets:
+            ticket["note"] = generate_csat_note(ticket)
 
     return {
         "date_label": date_label,

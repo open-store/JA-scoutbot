@@ -1,6 +1,6 @@
 # Okendo
 
-`/reviews` calls the Okendo merchant API from `queries/reviews.py`. Reviews are not read from Snowflake.
+`/reviews` calls the Okendo merchant API from `scout/integrations/okendo.py`. `queries/reviews.py` only aggregates the rows. Reviews are not read from Snowflake.
 
 Base URL: `https://api.okendo.io/enterprise`
 

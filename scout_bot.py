@@ -6,7 +6,6 @@ Handles slash commands and natural language @mentions / DMs.
 """
 
 import os
-import sys
 import re
 import logging
 import threading
@@ -16,25 +15,29 @@ from dotenv import load_dotenv
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-# Add scout directory to path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from command_parser import parse_command
-from formatters import (
-    format_csat, format_voc, format_errors, format_help, format_not_available,
-    format_nps, format_reviews, format_returns,
-    format_nps_report, format_pps_returning, format_attribution,
-    format_daily,
-)
 from queries.csat import run_csat
-from scout.services.voc_service import run_voc_query
 from queries.errors import run_errors
 from queries.nps import get_full_nps_report
 from queries.pps import get_returning_pps, get_attribution as run_attribution
 from queries.reviews import run_reviews
 from queries.returns import run_returns
-from queries.richpanel import get_daily_report
-from nl_router import route_natural_language, build_command_from_routing
+from scout.formatting import (
+    format_attribution,
+    format_csat,
+    format_daily,
+    format_errors,
+    format_help,
+    format_not_available,
+    format_nps_report,
+    format_pps_returning,
+    format_returns,
+    format_reviews,
+    format_voc,
+)
+from scout.integrations.richpanel import get_daily_report
+from scout.routing.command_parser import parse_command
+from scout.routing.nl_router import build_command_from_routing, route_natural_language
+from scout.services.voc_service import run_voc_query
 
 load_dotenv()  # loads .env in local dev; on the VM, env vars come from /etc/scout.env
 
@@ -132,7 +135,11 @@ def execute_scout_command(raw_input: str) -> str:
 
 
 def execute_natural_language(text: str) -> str:
-    """Route a natural language question to the right Scout command via LLM."""
+    """Route a natural language question to the right Scout command via LLM.
+
+    A future question-type router replaces ``route_natural_language``.
+    Slash commands do not come through here.
+    """
     routing = route_natural_language(text)
     command_str = build_command_from_routing(routing)
     confidence = routing.get("confidence", "?")
@@ -283,14 +290,9 @@ def handle_reviews(ack, respond, command):
 
 
 @app.command("/scout-help")
-def handle_help(ack, respond, command):
-    ack()
-    respond({"response_type": "ephemeral", "text": format_help()})
-
-
 @app.command("/help")
-def handle_help_alias(ack, respond, command):
-    """Alias: /help also shows Scout help (in case Slack routes it here)."""
+def handle_help(ack, respond, command):
+    """Scout help. ``/help`` is an alias in case Slack routes it here."""
     ack()
     respond({"response_type": "ephemeral", "text": format_help()})
 

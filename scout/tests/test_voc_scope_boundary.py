@@ -17,15 +17,11 @@ from __future__ import annotations
 
 import ast
 import os
-import sys
 from dataclasses import field
 from typing import List
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Ensure project root is on path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 from scout.models.product_feedback import (
     ProductFeedbackRequest,
@@ -181,7 +177,7 @@ def test_fallback_relaxed_caveat_propagates_to_result():
 def test_run_voc_filter_clause_with_ids():
     """_build_filter_clause must use IN (...) when conversation_ids are provided."""
     from queries.voc import _build_filter_clause
-    from command_parser import ParsedCommand
+    from scout.routing.command_parser import ParsedCommand
     from datetime import date, timedelta
 
     today = date.today()
@@ -204,7 +200,7 @@ def test_run_voc_filter_clause_with_ids():
 def test_run_voc_filter_clause_empty_ids_returns_no_results():
     """_build_filter_clause must use AND 1=0 when conversation_ids is empty list."""
     from queries.voc import _build_filter_clause
-    from command_parser import ParsedCommand
+    from scout.routing.command_parser import ParsedCommand
     from datetime import date, timedelta
 
     today = date.today()
@@ -224,7 +220,7 @@ def test_run_voc_filter_clause_empty_ids_returns_no_results():
 def test_run_voc_no_product_filter_no_id_clause():
     """General VOC (no product filter) must not include an ID filter clause."""
     from queries.voc import _build_filter_clause
-    from command_parser import ParsedCommand
+    from scout.routing.command_parser import ParsedCommand
     from datetime import date, timedelta
 
     today = date.today()
@@ -249,7 +245,7 @@ def test_run_voc_no_product_filter_no_id_clause():
 
 def test_voc_service_routes_product_query_to_run_product_voc():
     """run_voc_query must call run_product_voc for product-filtered queries."""
-    from command_parser import ParsedCommand
+    from scout.routing.command_parser import ParsedCommand
     from datetime import date, timedelta
 
     today = date.today()
@@ -271,7 +267,7 @@ def test_voc_service_routes_product_query_to_run_product_voc():
 
 def test_voc_service_routes_general_query_to_run_voc():
     """run_voc_query must call run_voc directly for general (non-product) queries."""
-    from command_parser import ParsedCommand
+    from scout.routing.command_parser import ParsedCommand
     from datetime import date, timedelta
 
     today = date.today()

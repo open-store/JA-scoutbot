@@ -1,6 +1,8 @@
 """
-Scout Snowflake Client
-Handles connection, query execution, and result formatting for Snowflake.
+Snowflake access for Scout.
+
+Connection, query execution, and result rows. RSA key auth.
+Other modules import this client instead of opening their own connections.
 """
 
 import os

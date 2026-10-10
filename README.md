@@ -40,12 +40,12 @@ Slack (Socket Mode)
         │
  scout_bot.py          slash commands, @mentions, and DMs
         │
- command_parser.py     slash text → command, timeframe, filters
- nl_router.py          plain English → the same command shape
+ scout/routing/        slash text, or plain English → the same command
         │
- queries/  +  scout/   Snowflake SQL and third-party API calls
+ queries/              command queries (returns stays its own module)
+ scout/integrations/   Snowflake, Okendo, KnoCommerce, Richpanel
         │
- formatters.py         Slack message
+ scout/formatting/     Slack message
 ```
 
 The product-VOC path has one extra rule: `voc_service.py` is the only module that joins product-feedback scope to VOC aggregates. See [architecture overview](docs/architecture/overview.md).
@@ -55,8 +55,7 @@ The product-VOC path has one extra rule: `voc_service.py` is the only module tha
 Production runs on Python 3.11. Tests must pass on 3.11. Python 3.12 is tolerated locally.
 
 ```bash
-pip install -r requirements.txt
-pip install pytest
+pip install -r requirements-dev.txt
 cp .env.example .env
 python scout_bot.py
 ```
@@ -82,14 +81,13 @@ Scout runs on the Google Compute Engine VM `scout-bot-vm` under systemd (`scout.
 ## Project layout
 
 ```
-scout_bot.py          Slack entry point
-command_parser.py     Slash-command parsing
-nl_router.py          Natural-language routing
-formatters.py         Slack message formatting
-snowflake_client.py   Shared Snowflake connection
-tag_mapping.py        Richpanel tag UUID → name
-queries/              SQL and third-party API clients
-scout/                Product-feedback models, repository, services, taxonomy, tests
+scout_bot.py          Slack entry point (scout.py is not used)
+scout/routing/        Slash parsing and natural-language routing
+scout/formatting/     Slack messages, one module per command
+scout/integrations/   Snowflake, Okendo, KnoCommerce, Richpanel; MCP is interface only
+scout/taxonomy/       Tag groups and tag UUID map
+queries/              Command queries, including queries/returns.py
+scout/                Product-feedback models, repository, services, tests
 docs/                 Documentation
 ```
 

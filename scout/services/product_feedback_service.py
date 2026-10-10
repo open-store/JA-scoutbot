@@ -24,13 +24,9 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Dict, List, Optional, Set
 
-from openai import OpenAI
-
-import sys
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from scout.llm import MODEL, get_client
 
 from scout.taxonomy.tags import tag_names_for_group
 from scout.taxonomy.products import resolve_aliases, canonical_name
@@ -50,9 +46,6 @@ from scout.repositories.product_feedback_repository import (
 from scout.services.evidence_service import process_evidence
 
 logger = logging.getLogger("scout.services.product_feedback")
-
-_LLM_MODEL = "gpt-4.1-mini"
-
 
 # ---------------------------------------------------------------------------
 # Step 1 — Scope discovery
@@ -306,9 +299,9 @@ Rules:
     user_prompt = f"Product: {product_name}\n\nCustomer messages ({len(bodies)} total):\n\n{numbered}"
 
     try:
-        client = OpenAI()
+        client = get_client()
         resp = client.chat.completions.create(
-            model=_LLM_MODEL,
+            model=MODEL,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},

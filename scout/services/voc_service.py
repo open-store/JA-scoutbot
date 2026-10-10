@@ -23,12 +23,8 @@ Architecture contract:
 from __future__ import annotations
 
 import logging
-import os
-import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-
-from command_parser import ParsedCommand
+from scout.routing.command_parser import ParsedCommand
 from queries.voc import run_voc
 from scout.models.product_feedback import ProductFeedbackRequest, ProductFeedbackScope
 from scout.services.product_feedback_service import (

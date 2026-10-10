@@ -1,12 +1,15 @@
 """Returns analysis — Snowflake table ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS.
 
+This module stays separate so a later returns-rate and returns-feedback
+feature has a home. That feature is not built here.
+
 Note: The return % in this table is qty_returned / gross_quantity at the
 line-item level.  Because the table only contains return rows (not all orders),
 this gives ~99%.  True return rate requires joining with OS_ALL_ORDERS.
 We flag this in the output and report volume / mix metrics instead.
 """
 
-from snowflake_client import get_connection
+from scout.integrations.snowflake import get_connection
 
 
 TABLE = "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS"

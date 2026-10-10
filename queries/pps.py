@@ -10,31 +10,11 @@ Handles two surveys:
 Schema: ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_
 """
 
-import os
-import sys
 import json
-from datetime import datetime, timedelta, timezone
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from snowflake_client import get_connection
-
-DB = "ANALYTICS"
-SCHEMA = "KNOCOMMERCE__NPS___SURVEYS_"
-
-SURVEY_IDS = {
-    "Returning Customer PPS": "81361b00-a8c6-4957-a632-838e133dace1",
-    "PPS - New Customers": "1dd68a35-2c53-4822-9068-04dd7678d990",
-}
-
-
-def fqn(table):
-    return f'"{DB}"."{SCHEMA}"."{table}"'
-
-
-def _date_range(days: int):
-    end = datetime.now(timezone.utc)
-    start = end - timedelta(days=days)
-    return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
+from scout.integrations.knocommerce import SURVEY_IDS, date_range as _date_range, fqn
+from scout.integrations.snowflake import get_connection
+from scout.llm import MODEL, get_client
 
 
 def _parse_value(raw) -> list:
@@ -447,8 +427,7 @@ def _extract_pps_themes(comments: list, survey_type: str = "returning") -> list:
     if len(comments) < 5:
         return []
 
-    from openai import OpenAI
-    client = OpenAI()
+    client = get_client()
 
     if survey_type == "returning":
         instruction = (
@@ -473,7 +452,7 @@ def _extract_pps_themes(comments: list, survey_type: str = "returning") -> list:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model=MODEL,
             messages=[
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": f"Comments:\n{comments_text}"},
@@ -511,8 +490,7 @@ def _cluster_other_writeins(writeins: list) -> list:
     if len(writeins) < 5:
         return []
 
-    from openai import OpenAI
-    client = OpenAI()
+    client = get_client()
 
     instruction = (
         "You are analyzing free-text 'Other' responses from a post-purchase survey asking "
@@ -527,7 +505,7 @@ def _cluster_other_writeins(writeins: list) -> list:
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4.1-mini",
+            model=MODEL,
             messages=[
                 {"role": "system", "content": instruction},
                 {"role": "user", "content": f"Write-in responses:\n{text}"},
