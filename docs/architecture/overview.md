@@ -34,13 +34,14 @@ Slack (Socket Mode)
 | `/errors` | `queries/errors.py` `run_errors` | Snowflake |
 | `/nps` | `queries/nps.py` `get_full_nps_report` | Snowflake (KnoCommerce tables) |
 | `/pps` | `queries/pps.py` `get_returning_pps` | Snowflake (KnoCommerce tables) |
+| `/pps_new` | `queries/pps.py` `get_new_pps` | Snowflake (KnoCommerce tables) |
 | `/attribution` | `queries/pps.py` `get_attribution` | Snowflake (KnoCommerce tables) |
 | `/returns` | `queries/returns.py` `run_returns` | Snowflake |
 | `/reviews` | `queries/reviews.py` `run_reviews` | Okendo HTTP API |
 | `/daily` | `scout/integrations/richpanel.py` `get_daily_report` | Richpanel HTTP API |
 | `/help`, `/scout-help` | `scout.formatting.format_help` | none |
 
-`/pps` always asks for the returning-customer survey unless the slash text contains "new", "first", or "acquisition". That branch returns the not-available message. New-customer acquisition is `/attribution`.
+`/pps` always asks for the returning-customer survey. `/pps_new` asks for the new-customer survey (recommend score and open text). A natural-language question about new-customer PPS still reaches that report. New-customer acquisition is `/attribution`.
 
 `/daily` does not take a timeframe. The report date is today in `America/New_York`.
 

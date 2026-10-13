@@ -100,7 +100,7 @@ def _keyword_fallback(text: str) -> dict:
     # New-customer PPS before attribution. "new customer survey" stays attribution.
     new_pps_phrases = (
         "new customer pps", "new customers pps", "new-customer pps", "pps new",
-        "pps for new", "new customer post-purchase", "new customer post purchase",
+        "pps_new", "pps for new", "new customer post-purchase", "new customer post purchase",
     )
     attribution_phrases = (
         "how are people finding", "attribution", "acquisition channel",

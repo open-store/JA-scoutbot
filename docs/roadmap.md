@@ -8,12 +8,13 @@ Status of the work that used to live in the root README and in the agent notes. 
 |---|---|
 | NPS by survey | `/nps`, `queries/nps.py`. Reads Snowflake, not the KnoCommerce HTTP API |
 | Returning-customer post-purchase survey | `/pps`, `queries/pps.py` |
+| New-customer post-purchase survey | `/pps_new`, `queries/pps.py` `get_new_pps` |
 | New-customer attribution | `/attribution`, `queries/pps.py` |
 | Daily CS KPIs | `/daily`, `scout/integrations/richpanel.py` |
 | Natural-language routing for NPS, PPS, attribution, returns, and reviews | `scout/routing/nl_router.py` |
 | Product VOC with a shared conversation scope | `scout/services/voc_service.py` |
 
-A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`, `/pps`, and `/attribution`.
+A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`, `/pps`, `/pps_new`, and `/attribution`.
 
 ## Still open
 

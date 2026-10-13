@@ -34,12 +34,13 @@ Filters the prompt asks for:
 
 - `product` on product-specific VOC questions.
 - `segment: returning` on returning-customer PPS questions.
+- `segment: new` on new-customer PPS questions. That runs the same report as `/pps_new`. Acquisition questions stay on `Attribution`.
 
 `Daily` is not a routable command.
 
 ## Keyword fallback
 
-`_keyword_fallback` checks phrases in this order: attribution, returning PPS, NPS, returns, reviews, CSAT, errors, help. Anything else becomes VOC.
+`_keyword_fallback` checks phrases in this order: new-customer PPS, attribution, returning PPS, NPS, returns, reviews, CSAT, errors, help. Anything else becomes VOC. A new-customer PPS phrase that also matches attribution stays on attribution.
 
 CSAT and the VOC default use `L30` when the text contains "month" or "30", and `L7` otherwise. Attribution, PPS, NPS, returns, and reviews are hardcoded to `L30`. Errors and help use `L7`.
 

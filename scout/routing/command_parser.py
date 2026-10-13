@@ -13,7 +13,7 @@ from typing import Optional
 
 BUSINESS_TZ = ZoneInfo("America/New_York")
 
-VALID_COMMANDS = {"csat", "voc", "errors", "nps", "pps", "attribution", "returns", "reviews", "help", "daily"}
+VALID_COMMANDS = {"csat", "voc", "errors", "nps", "pps", "pps_new", "attribution", "returns", "reviews", "help", "daily"}
 
 TIMEFRAME_PATTERN = re.compile(r"\bL(\d+)\b", re.IGNORECASE)
 
@@ -25,29 +25,35 @@ FILTER_PATTERNS = {
     "segment": re.compile(r'segment:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
 }
 
-# Words in `/pps` slash text that select the new-customer survey.
-# Bare `/pps` stays on the returning survey.
-_PPS_NEW_KEYWORDS = ("new", "first", "acquisition")
-
-
 def build_pps_command(text: str) -> str:
-    """Turn `/pps` slash text into a command string ``parse_command`` understands.
+    """Turn `/pps` slash text into the returning-customer command.
 
-    No segment word means the returning-customer report. ``new``, ``first``,
-    and ``acquisition`` select the new-customer survey. An explicit ``L7``
-    style window is preserved; otherwise the parser default applies.
+    `/pps` is always the returning-customer report. The new-customer report
+    is `/pps_new`. An explicit ``L7`` style window is preserved; otherwise
+    the parser default applies.
     """
     text = (text or "").strip()
-    segment = "new" if any(kw in text.lower() for kw in _PPS_NEW_KEYWORDS) else "returning"
     if text:
-        return f"/PPS {text} segment:{segment}"
-    return f"/PPS segment:{segment}"
+        return f"/PPS {text} segment:returning"
+    return "/PPS segment:returning"
+
+
+def build_pps_new_command(text: str) -> str:
+    """Turn `/pps_new` slash text into a command string ``parse_command`` understands.
+
+    Optional timeframe is ``L7``, ``L30``, ``L90``, or ``L180``, the same
+    window `/pps` accepts. This command is always the new-customer report.
+    """
+    text = (text or "").strip()
+    if text:
+        return f"/PPS_NEW {text}"
+    return "/PPS_NEW"
 
 
 @dataclass
 class ParsedCommand:
     """Represents a parsed Scout command."""
-    command: str  # csat, voc, errors, nps, pps, attribution, returns, reviews, help
+    command: str  # csat, voc, errors, nps, pps, pps_new, attribution, returns, reviews, help
     days: int = 7  # number of days for the lookback window
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
@@ -74,6 +80,7 @@ class ParsedCommand:
             "errors": "snowflake",
             "nps": "knocommerce",
             "pps": "knocommerce",
+            "pps_new": "knocommerce",
             "attribution": "knocommerce",
             "returns": "snowflake",
             "reviews": "okendo",
@@ -132,7 +139,7 @@ def parse_command(raw_input: str) -> ParsedCommand:
             command="unknown",
             raw_input=raw_input,
             is_valid=False,
-            error_message=f"Unknown command `{tokens[0]}`. Supported commands: `/CSAT`, `/VOC`, `/Errors`, `/NPS`, `/PPS`, `/Attribution`, `/Returns`, `/Reviews`, `/Help`."
+            error_message=f"Unknown command `{tokens[0]}`. Supported commands: `/CSAT`, `/VOC`, `/Errors`, `/NPS`, `/PPS`, `/PPS_NEW`, `/Attribution`, `/Returns`, `/Reviews`, `/Help`."
         )
     
     # Handle /Help immediately

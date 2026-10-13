@@ -20,6 +20,7 @@ Create each command under **Slash Commands**. Leave the request URL empty. Socke
 | `/errors` | Error-related ticket analysis | `[L7\|L30\|L180]` |
 | `/nps` | NPS by survey | `[L7\|L30\|L180]` |
 | `/pps` | Returning-customer post-purchase survey | `[L7\|L30\|L180]` |
+| `/pps_new` | New-customer post-purchase survey | `[L7\|L30\|L90\|L180]` |
 | `/attribution` | How new customers found the brand | `[L7\|L30\|L180]` |
 | `/returns` | Return volume and mix | `[L7\|L30\|L180] [product:"name"]` |
 | `/reviews` | Okendo review summary | `[L7\|L30\|L180] [product:"name"]` |
