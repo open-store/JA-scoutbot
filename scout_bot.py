@@ -18,7 +18,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from queries.csat import run_csat
 from queries.errors import run_errors
 from queries.nps import get_full_nps_report
-from queries.pps import get_returning_pps, get_attribution as run_attribution
+from queries.pps import get_new_pps, get_returning_pps, get_attribution as run_attribution
 from queries.reviews import run_reviews
 from queries.returns import run_returns
 from scout.formatting import (
@@ -27,15 +27,15 @@ from scout.formatting import (
     format_daily,
     format_errors,
     format_help,
-    format_not_available,
     format_nps_report,
+    format_pps_new,
     format_pps_returning,
     format_returns,
     format_reviews,
     format_voc,
 )
 from scout.integrations.richpanel import get_daily_report
-from scout.routing.command_parser import parse_command
+from scout.routing.command_parser import build_pps_command, parse_command
 from scout.routing.nl_router import build_command_from_routing, route_natural_language
 from scout.services.voc_service import run_voc_query
 
@@ -103,12 +103,12 @@ def execute_scout_command(raw_input: str) -> str:
         return format_nps_report(data)
 
     if cmd.command == "pps":
-        segment = cmd.filters.get("segment", "returning") if cmd.filters else "returning"
-        if segment == "returning":
+        segment = (cmd.filters or {}).get("segment", "returning")
+        if str(segment).lower() == "returning":
             data = get_returning_pps(cmd.days)
             return format_pps_returning(data)
-        # Future: new customer PPS deep-dive
-        return format_not_available("pps-new")
+        data = get_new_pps(cmd.days)
+        return format_pps_new(data)
 
     if cmd.command == "attribution":
         data = run_attribution(cmd.days)
@@ -233,14 +233,9 @@ def handle_nps(ack, respond, command):
 
 @app.command("/pps")
 def handle_pps(ack, respond, command):
-    """Returning Customer PPS: /pps [returning|new] [L7|L30|L90|L180]"""
-    text = command.get("text", "").strip().lower()
-    # Fuzzy match segment
-    if any(kw in text for kw in ["new", "first", "acquisition"]):
-        raw_input = f"/PPS L30 segment:new"
-    else:
-        raw_input = f"/PPS {text} segment:returning".strip()
-    _handle_slash(raw_input, ack, respond, command)
+    """PPS: /pps [returning|new] [L7|L30|L90|L180]. No segment means returning."""
+    text = command.get("text", "").strip()
+    _handle_slash(build_pps_command(text), ack, respond, command)
 
 
 @app.command("/attribution")

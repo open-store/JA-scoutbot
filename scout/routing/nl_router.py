@@ -17,8 +17,8 @@ Scout supports these commands:
 - VOC: questions about voice of customer, top themes, contact reasons, ticket volume, what customers are saying, product feedback, customer comments about a specific product, design feedback, fit/sizing feedback
 - Errors: questions about bugs, errors, broken features, checkout issues, payment issues, discount code failures, site issues
 - NPS: questions about Net Promoter Score, customer loyalty, promoters, detractors, NPS themes, why people rate us low/high, NPS score for a period. Jack Archer runs 3 NPS-type surveys (NPS Survey, Returning Customer PPS, New Customer PPS) — all are shown together in the NPS report.
-- PPS: questions specifically about why returning customers came back, what almost stopped them from purchasing, what returning customers want to see, returning customer survey insights. Use filters: {"segment": "returning"}. Also use PPS for new customer open-text feedback that isn't attribution-focused.
-- Attribution: questions about how customers found us, acquisition channels, where new customers come from, what brought them to the site, consideration window (how long they knew us before buying), who they bought for. This is the New Customer PPS attribution breakdown.
+- PPS: questions specifically about why returning customers came back, what almost stopped them from purchasing, what returning customers want to see, returning customer survey insights. Use filters: {"segment": "returning"}. Also use PPS with filters: {"segment": "new"} for the new-customer PPS report: new customer PPS, new-customer post-purchase feedback, and new customer open-text that isn't about how they found us.
+- Attribution: questions about how customers found us, acquisition channels, where new customers come from, what brought them to the site, consideration window (how long they knew us before buying), who they bought for. This is the New Customer PPS attribution breakdown. Keep these on Attribution even if the user says "new customer survey".
 - Returns: questions about returns, refunds, exchanges, return reasons, return rates
 - Reviews: questions about product reviews, star ratings, review sentiment
 - Help: user is asking how to use Scout or what commands are available
@@ -33,6 +33,7 @@ IMPORTANT RULES:
 5. "How are people finding us" or "acquisition" or "where are customers coming from" → Attribution (not NPS or VOC).
 6. "Why do customers come back" or "what made them return" or "returning customer survey" → PPS with segment:returning.
 7. "NPS themes", "why are people rating us low", "what are detractors saying" → NPS (not VOC).
+8. "New customer PPS" or new-customer post-purchase feedback that is not about acquisition → PPS with segment:new. "How are people finding us", "acquisition channel", "how did you hear", and "new customer survey" → Attribution, not PPS.
 
 Respond with ONLY a JSON object in this exact format:
 {
@@ -55,6 +56,8 @@ Examples:
 - "what's our top acquisition channel?" → {"command": "Attribution", "timeframe": "L30", "filters": {}, "confidence": "high", "reasoning": "Attribution question"}
 - "why do customers come back?" → {"command": "PPS", "timeframe": "L30", "filters": {"segment": "returning"}, "confidence": "high", "reasoning": "Returning customer PPS question"}
 - "what almost stopped customers from buying?" → {"command": "PPS", "timeframe": "L30", "filters": {"segment": "returning"}, "confidence": "high", "reasoning": "Returning customer PPS friction question"}
+- "show me new customer PPS" → {"command": "PPS", "timeframe": "L30", "filters": {"segment": "new"}, "confidence": "high", "reasoning": "New customer PPS report, not attribution"}
+- "what are new customers saying in the post-purchase survey?" → {"command": "PPS", "timeframe": "L30", "filters": {"segment": "new"}, "confidence": "high", "reasoning": "New customer PPS open-text, not acquisition"}
 - "Are you able to let me know if we get comments or callouts on the anytime crewneck sleeve length? I'm working on a V neck version" → {"command": "VOC", "timeframe": "L30", "filters": {"product": "anytime crewneck"}, "confidence": "high", "reasoning": "Product feedback question about Anytime Crewneck, VOC with product filter"}
 - "do customers mention body length on the jetsetter pant?" → {"command": "VOC", "timeframe": "L30", "filters": {"product": "jetsetter pant"}, "confidence": "high", "reasoning": "Product-specific feedback question"}
 """
@@ -94,10 +97,23 @@ def _keyword_fallback(text: str) -> dict:
     """Simple keyword-based fallback router."""
     text_lower = text.lower()
 
+    # New-customer PPS before attribution. "new customer survey" stays attribution.
+    new_pps_phrases = (
+        "new customer pps", "new customers pps", "new-customer pps", "pps new",
+        "pps for new", "new customer post-purchase", "new customer post purchase",
+    )
+    attribution_phrases = (
+        "how are people finding", "attribution", "acquisition channel",
+        "where are customers coming from", "how did you hear",
+        "new customer survey", "first time buyer", "first-time buyer",
+    )
+    is_new_pps = any(phrase in text_lower for phrase in new_pps_phrases)
+    is_attribution = any(phrase in text_lower for phrase in attribution_phrases)
+    if is_new_pps and not is_attribution:
+        return {"command": "PPS", "timeframe": "L30", "filters": {"segment": "new"}, "confidence": "medium", "reasoning": "keyword: pps new"}
+
     # Attribution (check before NPS — "survey" alone should not trigger attribution)
-    if any(kw in text_lower for kw in ["how are people finding", "attribution", "acquisition channel",
-                                        "where are customers coming from", "how did you hear",
-                                        "new customer survey", "first time buyer", "first-time buyer"]):
+    if is_attribution:
         return {"command": "Attribution", "timeframe": "L30", "filters": {}, "confidence": "medium", "reasoning": "keyword: attribution"}
 
     # PPS returning (check before NPS)
