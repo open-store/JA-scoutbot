@@ -53,7 +53,7 @@ The time filter is `RESPONSE.CREATED_AT`. `COMPLETED_AT` is often null, so it is
 | Path | Window |
 |---|---|
 | Slash parser (`ParsedCommand`) | Complete days ending at midnight `America/New_York` |
-| `/nps` and `/pps` | UTC now minus N days, as dates |
+| `/nps`, `/pps`, and `/pps_new` | UTC now minus N days, as dates |
 | `/reviews` | `datetime.utcnow()` minus N days |
 | `/returns` | `CURRENT_DATE()` in Snowflake, minus N days |
 | `/daily` | Today in `America/New_York` |

@@ -8,9 +8,10 @@ import os
 os.environ.setdefault("SLACK_BOT_TOKEN", "xoxb-test")
 os.environ.setdefault("SLACK_SIGNING_SECRET", "test-signing-secret")
 
+from scout.formatting.help import format_help
 from scout.formatting.pps import format_attribution, format_pps_new, format_pps_returning
 from scout.integrations.knocommerce import SURVEY_IDS, fqn
-from scout.routing.command_parser import build_pps_command, parse_command
+from scout.routing.command_parser import build_pps_command, build_pps_new_command, parse_command
 from scout.routing.nl_router import _keyword_fallback, build_command_from_routing
 
 
@@ -122,23 +123,52 @@ def test_format_pps_new_empty():
 def test_build_pps_command_segments():
     assert build_pps_command("") == "/PPS segment:returning"
     assert build_pps_command("L30") == "/PPS L30 segment:returning"
-    assert build_pps_command("new") == "/PPS new segment:new"
-    assert build_pps_command("new L7") == "/PPS new L7 segment:new"
-    assert build_pps_command("L90 first") == "/PPS L90 first segment:new"
+    # Words that used to select the new survey stay on the returning command.
+    assert build_pps_command("new") == "/PPS new segment:returning"
+    assert build_pps_command("new L7") == "/PPS new L7 segment:returning"
+    assert build_pps_command("L90 first") == "/PPS L90 first segment:returning"
 
     bare = parse_command(build_pps_command(""))
     assert bare.command == "pps"
     assert bare.filters["segment"] == "returning"
     assert bare.days == 7
 
-    new_cmd = parse_command(build_pps_command("new L30"))
-    assert new_cmd.command == "pps"
-    assert new_cmd.filters["segment"] == "new"
-    assert new_cmd.days == 30
+    typed_new = parse_command(build_pps_command("new L30"))
+    assert typed_new.command == "pps"
+    assert typed_new.filters["segment"] == "returning"
+    assert typed_new.days == 30
 
     returning = parse_command("/PPS L30")
     assert returning.command == "pps"
     assert "segment" not in returning.filters
+
+
+def test_build_pps_new_command_timeframes():
+    assert build_pps_new_command("") == "/PPS_NEW"
+    assert build_pps_new_command("L7") == "/PPS_NEW L7"
+    assert build_pps_new_command("L30") == "/PPS_NEW L30"
+    assert build_pps_new_command("L90") == "/PPS_NEW L90"
+    assert build_pps_new_command("L180") == "/PPS_NEW L180"
+
+    default = parse_command(build_pps_new_command(""))
+    assert default.command == "pps_new"
+    assert default.days == 7
+    assert default.is_valid
+    assert default.source == "knocommerce"
+
+    for label, days in (("L7", 7), ("L30", 30), ("L90", 90), ("L180", 180)):
+        parsed = parse_command(build_pps_new_command(label))
+        assert parsed.command == "pps_new"
+        assert parsed.days == days
+        assert parsed.is_valid
+
+
+def test_help_lists_pps_new_not_pps_new_words():
+    text = format_help()
+    assert "`/pps_new L30`" in text
+    assert "`/pps L30`" in text
+    assert "`/attribution L30`" in text
+    assert "/pps new" not in text
 
 
 def test_keyword_fallback_routes_new_pps_and_keeps_attribution():
@@ -146,6 +176,10 @@ def test_keyword_fallback_routes_new_pps_and_keeps_attribution():
     assert new_pps["command"] == "PPS"
     assert new_pps["filters"]["segment"] == "new"
     assert build_command_from_routing(new_pps) == "/PPS L30 segment:new"
+
+    slash_name = _keyword_fallback("run pps_new")
+    assert slash_name["command"] == "PPS"
+    assert slash_name["filters"]["segment"] == "new"
 
     attribution = _keyword_fallback("how are people finding us")
     assert attribution["command"] == "Attribution"
@@ -222,10 +256,25 @@ def test_execute_pps_new_and_leaves_attribution(monkeypatch):
     assert "New Customer PPS" in new_text
 
     calls.clear()
+    slash_text = scout_bot.execute_scout_command("/PPS_NEW L90")
+    assert calls == {"new": 90}
+    assert "New Customer PPS" in slash_text
+
+    calls.clear()
+    default_text = scout_bot.execute_scout_command("/PPS_NEW")
+    assert calls == {"new": 7}
+    assert "New Customer PPS" in default_text
+
+    calls.clear()
     returning_text = scout_bot.execute_scout_command("/PPS L30")
     assert calls == {"returning": 30}
     assert "Returning Customer PPS" in returning_text
     assert "coming soon" not in returning_text.lower()
+
+    calls.clear()
+    legacy_words = scout_bot.execute_scout_command(build_pps_command("new L30"))
+    assert calls == {"returning": 30}
+    assert "Returning Customer PPS" in legacy_words
 
     calls.clear()
     attribution_text = scout_bot.execute_scout_command("/Attribution L7")

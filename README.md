@@ -13,6 +13,7 @@ Timeframes are `L7`, `L30`, and `L180`. Slash commands default to `L7` when the 
 | `/errors [L7\|L30\|L180]` | Share of tickets whose subjects match error keywords, plus CSAT on those tickets | Richpanel conversations in Snowflake |
 | `/nps [L7\|L30\|L180]` | NPS by survey, with promoter, passive, and detractor mix | KnoCommerce surveys in Snowflake |
 | `/pps [L7\|L30\|L180]` | Why returning customers came back, and what almost stopped them | KnoCommerce surveys in Snowflake |
+| `/pps_new [L7\|L30\|L90\|L180]` | New-customer recommend score and open-text themes | KnoCommerce surveys in Snowflake |
 | `/attribution [L7\|L30\|L180]` | How new customers found Jack Archer, and what brought them to the site | KnoCommerce surveys in Snowflake |
 | `/returns [L7\|L30\|L180] [product:"name"]` | Return volume, type mix, top products, and refund notes. This is not a true return rate | Snowflake returns export |
 | `/reviews [L7\|L30\|L180] [product:"name"]` | Review rating, sentiment, and sample quotes | Okendo API |

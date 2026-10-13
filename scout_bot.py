@@ -35,7 +35,7 @@ from scout.formatting import (
     format_voc,
 )
 from scout.integrations.richpanel import get_daily_report
-from scout.routing.command_parser import build_pps_command, parse_command
+from scout.routing.command_parser import build_pps_command, build_pps_new_command, parse_command
 from scout.routing.nl_router import build_command_from_routing, route_natural_language
 from scout.services.voc_service import run_voc_query
 
@@ -102,11 +102,16 @@ def execute_scout_command(raw_input: str) -> str:
         data = get_full_nps_report(cmd.days)
         return format_nps_report(data)
 
+    if cmd.command == "pps_new":
+        data = get_new_pps(cmd.days)
+        return format_pps_new(data)
+
     if cmd.command == "pps":
         segment = (cmd.filters or {}).get("segment", "returning")
         if str(segment).lower() == "returning":
             data = get_returning_pps(cmd.days)
             return format_pps_returning(data)
+        # Natural language still sends PPS with segment:new.
         data = get_new_pps(cmd.days)
         return format_pps_new(data)
 
@@ -233,9 +238,16 @@ def handle_nps(ack, respond, command):
 
 @app.command("/pps")
 def handle_pps(ack, respond, command):
-    """PPS: /pps [returning|new] [L7|L30|L90|L180]. No segment means returning."""
+    """Returning Customer PPS: /pps [L7|L30|L90|L180]."""
     text = command.get("text", "").strip()
     _handle_slash(build_pps_command(text), ack, respond, command)
+
+
+@app.command("/pps_new")
+def handle_pps_new(ack, respond, command):
+    """New Customer PPS: /pps_new [L7|L30|L90|L180]."""
+    text = command.get("text", "").strip()
+    _handle_slash(build_pps_new_command(text), ack, respond, command)
 
 
 @app.command("/attribution")

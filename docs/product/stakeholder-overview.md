@@ -17,6 +17,7 @@ Slash commands take a window of `L7`, `L30`, or `L180` (last 7, 30, or 180 days)
 | `/reviews` | Star rating and recent praise or complaints from product reviews |
 | `/nps` | Net Promoter Score for each live survey |
 | `/pps` | Why returning customers came back, and what almost stopped them |
+| `/pps_new` | New-customer recommend score and what they wrote in the post-purchase survey |
 | `/attribution` | How new customers heard about the brand |
 | `/daily` | Today's support KPIs: tickets closed, speed, and CSAT |
 | `/scout-help` | The short command list inside Slack |
@@ -36,7 +37,7 @@ If Scout is unsure, it says so and still answers with its best match.
 | Question | System |
 |---|---|
 | CSAT, VOC, errors | Support conversations stored in Snowflake |
-| NPS, returning-customer survey, attribution | Post-purchase surveys stored in Snowflake |
+| NPS, returning-customer survey, new-customer survey, attribution | Post-purchase surveys stored in Snowflake |
 | Returns | Returns table in Snowflake |
 | Reviews | Live product-review API |
 | Daily support KPIs | Live support-platform API |

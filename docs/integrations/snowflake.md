@@ -29,7 +29,7 @@ Most queries ignore the session default and use a fully qualified name.
 | `/csat`, `/voc`, `/errors` | `FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS` |
 | Product feedback messages | `CONVERSATIONS` and `MESSAGES` in the session schema (unqualified) |
 | `/returns` | `ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS` |
-| `/nps`, `/pps`, `/attribution` | `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_` tables `SURVEY`, `RESPONSE`, `RESPONSE_ANSWER` |
+| `/nps`, `/pps`, `/pps_new`, `/attribution` | `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_` tables `SURVEY`, `RESPONSE`, `RESPONSE_ANSWER` |
 
 `/reviews` and `/daily` do not query Snowflake. See [Okendo](okendo.md) and [Richpanel API](richpanel-api.md).
 
