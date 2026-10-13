@@ -22,7 +22,26 @@ FILTER_PATTERNS = {
     "channel": re.compile(r'channel:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
     "product": re.compile(r'product:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
     "agent": re.compile(r'agent:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
+    "segment": re.compile(r'segment:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
 }
+
+# Words in `/pps` slash text that select the new-customer survey.
+# Bare `/pps` stays on the returning survey.
+_PPS_NEW_KEYWORDS = ("new", "first", "acquisition")
+
+
+def build_pps_command(text: str) -> str:
+    """Turn `/pps` slash text into a command string ``parse_command`` understands.
+
+    No segment word means the returning-customer report. ``new``, ``first``,
+    and ``acquisition`` select the new-customer survey. An explicit ``L7``
+    style window is preserved; otherwise the parser default applies.
+    """
+    text = (text or "").strip()
+    segment = "new" if any(kw in text.lower() for kw in _PPS_NEW_KEYWORDS) else "returning"
+    if text:
+        return f"/PPS {text} segment:{segment}"
+    return f"/PPS segment:{segment}"
 
 
 @dataclass

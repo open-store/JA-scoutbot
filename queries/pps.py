@@ -4,8 +4,9 @@ PPS (Post-Purchase Survey) query module.
 Handles two surveys:
   - Returning Customer PPS: why they came back, what almost stopped them,
     what they wish we sold, open-text feedback.
-  - PPS - New Customers (attribution): how they heard about us, what brought
-    them to the site, consideration window, who they bought for.
+  - PPS - New Customers: recommend score and open-text themes (`get_new_pps`),
+    plus the attribution breakdown (`get_attribution`): how they heard about
+    us, what brought them to the site, consideration window, who they bought for.
 
 Schema: ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_
 """
@@ -319,6 +320,91 @@ def get_returning_pps(days: int = 30) -> dict:
         "nps_breakdown": nps_breakdown,
         "return_reasons": return_reasons,
         "almost_stopped_pct": almost_stopped_pct,
+        "open_text_themes": open_text_themes,
+        "open_text_count": len(open_text_comments),
+    }
+
+
+# ── NEW CUSTOMER PPS ───────────────────────────────────────────────
+
+def get_new_pps(days: int = 30) -> dict:
+    """
+    New Customer PPS report for the last N days.
+
+    Mirrors ``get_returning_pps`` against ``SURVEY_IDS["PPS - New Customers"]``.
+    Questions already used for this survey are the recommend NPS score
+    (same filter as ``queries/nps.py``) and open text (``Text`` / ``TextArea``).
+    "Come back" and "stop you" belong to the returning survey. Attribution
+    questions (how they heard, what brought them, consideration window, who
+    they bought for) stay on ``get_attribution``.
+    """
+    start_date, end_date = _date_range(days)
+    survey_id = SURVEY_IDS["PPS - New Customers"]
+    conn = get_connection()
+    cur = conn.cursor()
+
+    cur.execute(f"""
+        SELECT COUNT(*) FROM {fqn('RESPONSE')}
+        WHERE SURVEY_ID = '{survey_id}'
+          AND CREATED_AT >= '{start_date}'
+          AND CREATED_AT < '{end_date}'
+          AND _FIVETRAN_DELETED = FALSE
+    """)
+    response_count = cur.fetchone()[0]
+
+    cur.execute(f"""
+        SELECT
+            COUNT(DISTINCT ra.RESPONSE_ID) as total,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) >= 9 THEN 1 ELSE 0 END) as promoters,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) BETWEEN 7 AND 8 THEN 1 ELSE 0 END) as passives,
+            SUM(CASE WHEN TRY_TO_NUMBER(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) <= 6 THEN 1 ELSE 0 END) as detractors
+        FROM {fqn('RESPONSE_ANSWER')} ra
+        JOIN {fqn('RESPONSE')} r ON ra.RESPONSE_ID = r.ID
+        WHERE r.SURVEY_ID = '{survey_id}'
+          AND ra.TYPE = 'NPS'
+          AND ra.LABEL ILIKE '%recommend%'
+          AND r.CREATED_AT >= '{start_date}'
+          AND r.CREATED_AT < '{end_date}'
+          AND ra."VALUE" IS NOT NULL
+          AND ra._FIVETRAN_DELETED = FALSE
+    """)
+    row = cur.fetchone()
+    total, promoters, passives, detractors = row
+    nps = round(((promoters - detractors) / total) * 100, 1) if total > 0 else None
+    nps_breakdown = {
+        "total": total, "nps": nps,
+        "promoters": promoters, "passives": passives, "detractors": detractors,
+        "promoter_pct": round(promoters / total * 100, 1) if total > 0 else 0,
+        "passive_pct": round(passives / total * 100, 1) if total > 0 else 0,
+        "detractor_pct": round(detractors / total * 100, 1) if total > 0 else 0,
+    }
+
+    cur.execute(f"""
+        SELECT TRIM(CAST(ra."VALUE" AS VARCHAR), '"') as comment
+        FROM {fqn('RESPONSE_ANSWER')} ra
+        JOIN {fqn('RESPONSE')} r ON ra.RESPONSE_ID = r.ID
+        WHERE r.SURVEY_ID = '{survey_id}'
+          AND ra.TYPE IN ('Text', 'TextArea')
+          AND r.CREATED_AT >= '{start_date}'
+          AND r.CREATED_AT < '{end_date}'
+          AND ra."VALUE" IS NOT NULL
+          AND LENGTH(TRIM(CAST(ra."VALUE" AS VARCHAR), '"')) > 5
+          AND ra._FIVETRAN_DELETED = FALSE
+        ORDER BY r.CREATED_AT DESC
+        LIMIT 100
+    """)
+    open_text_rows = cur.fetchall()
+    open_text_comments = [r[0] for r in open_text_rows if r[0] and r[0].strip()]
+
+    cur.close()
+    conn.close()
+
+    open_text_themes = _extract_pps_themes(open_text_comments, survey_type="new")
+
+    return {
+        "days": days,
+        "response_count": response_count,
+        "nps_breakdown": nps_breakdown,
         "open_text_themes": open_text_themes,
         "open_text_count": len(open_text_comments),
     }

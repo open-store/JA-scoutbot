@@ -16,6 +16,7 @@ def format_help() -> str:
         "• `/errors L30` — Error trends & CSAT impact",
         "• `/nps L30` — NPS scores by survey (NPS Survey, Returning PPS, New Customer PPS)",
         "• `/pps L30` — Returning Customer PPS: why they came back, friction, themes",
+        "• `/pps new L30` — New Customer PPS: recommend score and open-text themes",
         "• `/attribution L30` — New customer attribution: how they found us, what brought them",
         "• `/daily` — Yesterday's CS KPI report: tickets closed, FRT, RT, CSAT by agent",
         "• `/returns L30` — Return volume, top products, and type breakdown",

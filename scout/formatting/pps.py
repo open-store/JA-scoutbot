@@ -56,6 +56,42 @@ def format_pps_returning(data: dict) -> str:
     return "\n".join(lines)
 
 
+def format_pps_new(data: dict) -> str:
+    """Format New Customer PPS report for Slack."""
+    days = data.get("days", 30)
+    response_count = data.get("response_count", 0)
+    nps_bd = data.get("nps_breakdown", {})
+    open_text_themes = data.get("open_text_themes", [])
+    open_text_count = data.get("open_text_count", 0)
+
+    if response_count == 0:
+        return _no_data_message("New Customer PPS", f"last {days} days", "Snowflake (KnoCommerce)")
+
+    lines = [f"*:sparkles: New Customer PPS — Last {days} Days*  (n={response_count:,} responses)", ""]
+
+    nps = nps_bd.get("nps")
+    if nps is not None:
+        emoji = _nps_emoji(nps)
+        lines.append(
+            f"{emoji} *NPS:* `{nps:+.1f}`  "
+            f"P:{nps_bd['promoter_pct']}%  Pa:{nps_bd['passive_pct']}%  D:{nps_bd['detractor_pct']}%  "
+            f"(n={nps_bd['total']:,})"
+        )
+        lines.append("")
+
+    if open_text_themes:
+        lines.append(f"*Open-text themes* _(from {open_text_count} responses)_")
+        for i, theme in enumerate(open_text_themes, 1):
+            bar = _bar(theme["pct"], width=15)
+            lines.append(f"{i}. *{theme['theme']}*  {bar}  {theme['pct']}%")
+            if theme.get("verbatims"):
+                for v in theme["verbatims"][:1]:
+                    lines.append(f"   _\"{v}\"_")
+        lines.append("")
+
+    lines.append(f"*Source:* Snowflake · `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_`")
+    return "\n".join(lines)
+
 
 def format_attribution(data: dict) -> str:
     """Format New Customer PPS attribution report for Slack."""
