@@ -1,10 +1,12 @@
 """Slack formatting."""
 
+from typing import Optional
+
 from scout.formatting._common import _no_data_message
 
 _RETRIEVAL_LABELS = {
     "strict": "product named in the ticket, with a product-feedback tag",
-    "fallback_body_only": "product named in the ticket; tickets without a product-feedback tag included",
+    "fallback_body_only": "product named in the ticket; the product-feedback tag requirement was dropped to widen the search",
     "empty": "no matching tickets",
 }
 
@@ -75,6 +77,71 @@ def _product_scope_lines(pf: dict) -> list:
         lines.append(f"• *Tickets included:* {retrieval}")
     if pf.get("topic"):
         lines.append(f"• *Question focus:* {pf['topic']} (focuses the themes; ticket counts cover all feedback)")
+    return lines
+
+
+_TIER_LABELS = (
+    ("confirmed", "Confirmed", "the customer named the product"),
+    ("order_linked", "Order-linked", "a referenced order identifies this item"),
+    ("inferred", "Inferred", "purchase history points to this item; kept out of themes"),
+    ("unresolved", "Unresolved", "not enough to attribute; kept out of themes"),
+)
+
+_UNRESOLVED_LABELS = {
+    "multiple_products_named": "several products named",
+    "thread_names_several_products": "several products named in the ticket",
+    "conflicting_order_reference": "referenced order conflicts",
+    "order_identity_mismatch": "order belongs to another customer",
+    "order_not_found": "order not found",
+    "multi_item_order": "multi-item order, item not named",
+    "several_recent_products": "several recent purchases",
+    "no_matching_purchase": "no matching purchase",
+    "customer_identity_unverified": "customer not matched to orders",
+    "order_data_unavailable": "order data not connected",
+}
+
+
+def _n(count: int, word: str) -> str:
+    return f"{count} {word}{'' if count == 1 else 's'}"
+
+
+def _evidence_cleaning_lines(stats: dict) -> list:
+    removed = stats.get("exact_duplicates", 0) + stats.get("repeats_collapsed", 0)
+    stripped = stats.get("agent_text_removed", 0)
+    parts = []
+    if removed:
+        parts.append(f"{_n(removed, 'repeated or quoted message')} merged")
+    if stripped:
+        parts.append(f"agent text removed from {_n(stripped, 'customer message')}")
+    return [f"• *Deduplication:* {'; '.join(parts)}"] if parts else []
+
+
+def _attribution_lines(attribution: Optional[dict]) -> list:
+    if not attribution:
+        return []
+    tiers = (attribution.get("in_scope") or {}).get("tiers", {})
+    methods = (attribution.get("in_scope") or {}).get("methods", {})
+    outside = (attribution.get("inferred_outside_scope") or {}).get("tiers", {}).get("inferred", {})
+    order_data = attribution.get("order_data") or {}
+    lines = ["*Product attribution* (themes use confirmed and order-linked evidence)"]
+    for key, label, meaning in _TIER_LABELS:
+        slot = tiers.get(key, {"messages": 0, "tickets": 0})
+        if key in ("order_linked", "inferred") and not order_data.get("available"):
+            lines.append(f"• *{label}:* not evaluated, order data is not connected")
+            continue
+        detail = f"{_n(slot['messages'], 'message')} from {_n(slot['tickets'], 'ticket')}"
+        if key == "inferred" and outside.get("messages"):
+            detail += (f", plus {_n(outside['messages'], 'message')} from "
+                       f"{_n(outside['tickets'], 'other product-feedback ticket')}")
+        if key == "unresolved" and slot["messages"]:
+            reasons = [f"{methods[m]} {text}" for m, text in _UNRESOLVED_LABELS.items() if methods.get(m)]
+            if reasons:
+                detail += f" ({', '.join(reasons)})"
+        lines.append(f"• *{label}:* {detail} — {meaning}")
+    other = tiers.get("other_product", {}).get("messages", 0)
+    if other:
+        lines.append(f"• *About other products:* {_n(other, 'message')}, excluded")
+    lines.append("")
     return lines
 
 
@@ -189,7 +256,14 @@ def format_voc(data: dict) -> str:
         if pf_headline:
             lines.append(f"_{pf_headline}_")
         lines.append("")
-        lines.append(f"• *Sample:* {pf_count} customer messages from {pf_convos} product-related tickets")
+        sample_tickets = product_feedback.get("sample_ticket_count")
+        if sample_tickets is not None:
+            lines.append(
+                f"• *Sample:* {pf_count} customer messages from {sample_tickets} of "
+                f"{pf_convos} product-related tickets"
+            )
+        else:
+            lines.append(f"• *Sample:* {pf_count} customer messages from {pf_convos} product-related tickets")
         retrieved = product_feedback.get("retrieved_message_count")
         cleaned = product_feedback.get("cleaned_message_count")
         if retrieved:
@@ -197,9 +271,11 @@ def format_voc(data: dict) -> str:
                 f"• *Messages:* {retrieved} retrieved, {cleaned} after cleaning "
                 f"(auto-replies, very short messages, duplicates), {pf_count} analysed"
             )
+        lines.extend(_evidence_cleaning_lines(product_feedback.get("evidence_stats") or {}))
         lines.append(f"• *Timeframe:* Last {days} complete days")
         lines.append(f"• *Source:* {product_feedback.get('source', 'Richpanel tickets via Snowflake')}")
         lines.append("")
+        lines.extend(_attribution_lines(product_feedback.get("attribution")))
 
         if pf_low_sample:
             lines.append(f"_:warning: Low sample size ({pf_count} messages). Results are directional — try a longer timeframe (e.g. L180) for more data._")
@@ -211,13 +287,19 @@ def format_voc(data: dict) -> str:
                 label = theme.get("label", "")
                 count = theme.get("mention_count", "")
                 quote = theme.get("representative_quote", "")
-                count_str = f" — {count} mentions" if count else ""
+                if count:
+                    count_str = f" — {count} ticket{'s' if count != 1 else ''}"
+                    if count == 1:
+                        count_str += " (single report)"
+                else:
+                    count_str = ""
                 quote_str = f"  \"_{quote}_\"" if quote else ""
                 lines.append(f"• *{label}*{count_str}{quote_str}")
             lines.append("")
 
-        if pf_caveats:
-            for caveat in pf_caveats:
+        shown = [c for c in pf_caveats if not (pf_low_sample and c.startswith("Low sample size"))]
+        if shown:
+            for caveat in shown:
                 lines.append(f"_{caveat}_")
             lines.append("")
     elif product_feedback is not None:

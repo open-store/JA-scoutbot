@@ -7,8 +7,7 @@ can check windows, filters, and which conversation IDs each period used.
 import ast
 import json
 import os
-import re
-from typing import Dict, List
+from typing import Dict
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -21,70 +20,30 @@ from scout.services import product_feedback_service
 from scout.services.voc_service import run_voc_query
 from scout.taxonomy.products import alias_only_catalog
 from scout.tests.catalog_fixture import fixture_catalog
+from scout.tests.fake_warehouse import FakeWarehouse
 
 
-class FakeWarehouse:
-    def __init__(self, cmd, current_strict, previous_strict, current_body=(), previous_body=(), messages=None):
-        self.prev_start = cmd.previous_start_date.isoformat()
-        self.ids = {
-            ("current", "strict"): list(current_strict),
-            ("current", "body"): list(current_body),
-            ("previous", "strict"): list(previous_strict),
-            ("previous", "body"): list(previous_body),
-        }
-        self.messages = messages if messages is not None else {}
-        self.repo_sql: List[str] = []
-        self.voc_sql: List[str] = []
-
-    def candidate_calls(self, period: str, kind: str) -> List[str]:
-        out = []
-        for sql in self.repo_sql:
-            if "AS CONVERSATION_ID" not in sql:
-                continue
-            is_prev = f"TO_TIMESTAMP_TZ('{self.prev_start}')" in sql
-            is_strict = "PARSE_JSON(c.TAGS)) f" in sql
-            if (period == "previous") == is_prev and (kind == "strict") == is_strict:
-                out.append(sql)
-        return out
-
-    def repo(self, sql, params=None):
-        self.repo_sql.append(sql)
-        if "AS MESSAGE_ID" in sql:
-            wanted = set(re.findall(r"'([^']+)'", sql.split("IN (", 1)[1].split(")", 1)[0]))
-            rows = []
-            for cid in sorted(wanted):
-                rows.extend(self.messages.get(cid, []))
-            limit = re.search(r"LIMIT (\d+)", sql)
-            return rows[:int(limit.group(1))] if limit else rows
-        period = "previous" if f"TO_TIMESTAMP_TZ('{self.prev_start}')" in sql else "current"
-        kind = "strict" if "PARSE_JSON(c.TAGS)) f" in sql else "body"
-        return [{"CONVERSATION_ID": cid} for cid in self.ids[(period, kind)]]
-
-    def voc(self, sql, params=None):
-        self.voc_sql.append(sql)
-        ids = re.findall(r"'(conv-[^']+|prev-[^']+)'", sql)
-        if "csat_pct" in sql:
-            return [{"TOTAL_CONVERSATIONS": len(ids), "TOTAL_RATED": 0, "CSAT_PCT": None}]
-        if "COUNT(*) AS total_conversations" in sql:
-            return [{"TOTAL_CONVERSATIONS": len(ids)}]
-        return []
-
-    def previous_volume_sql(self) -> str:
-        return next(s for s in self.voc_sql if "COUNT(*) AS total_conversations" in s and "csat_pct" not in s)
-
-    def current_volume_sql(self) -> str:
-        return next(s for s in self.voc_sql if "csat_pct" in s)
+_COMPLAINTS = (
+    "The {product} waistband rolls over after one wash and keeps folding down.",
+    "I ordered my usual size in the {product} and the waist is far too tight to button.",
+    "Love the colour of the {product}, but the inseam is shorter than the size chart says.",
+    "The fabric on my {product} started pilling around the pockets within two weeks.",
+    "Is there a way to exchange the {product} for a larger size? The thighs feel restrictive.",
+    "My {product} shrank noticeably after a cold wash, which I did not expect at this price.",
+)
 
 
-def _messages(ids, per_conversation=2, text="The {product} waistband rolls over after a wash, message {n}."):
+def _messages(ids, per_conversation=2, product="Atlas Short"):
+    """Distinct customer messages; each conversation has its own customer."""
     out: Dict[str, list] = {}
     n = 0
     for cid in ids:
         out[cid] = []
         for _ in range(per_conversation):
+            body = _COMPLAINTS[n % len(_COMPLAINTS)].format(product=product)
             out[cid].append({
-                "MESSAGE_ID": f"msg-{n}", "CONVERSATION_ID": cid, "AUTHOR_ID": "cust",
-                "BODY": text.format(product="Atlas Short", n=n), "CREATED_AT": None,
+                "MESSAGE_ID": f"msg-{n}", "CONVERSATION_ID": cid, "AUTHOR_ID": f"cust-{cid}",
+                "BODY": f"{body} I have had them for {n + 2} days.", "CREATED_AT": None,
             })
             n += 1
     return out
@@ -98,7 +57,7 @@ def _synthesis_client(themes=None, raises=False):
     payload = {
         "headline": "Customers say the Atlas Short waistband rolls over.",
         "themes": themes if themes is not None else [
-            {"label": "Waistband rolls over", "mention_count": 9, "representative_quote": "waistband rolls over"},
+            {"label": "Waistband rolls over", "evidence": [1, 2, 3], "representative_quote": "waistband rolls over"},
         ],
         "so_what": "Waistband construction drives most complaints.",
         "recommended_action": "Review the waistband spec with the factory.",
@@ -161,7 +120,7 @@ def test_atlas_short_end_to_end():
 
     # The formatter renders the service output, including themes.
     assert "Waistband rolls over" in out
-    assert "12 customer messages from 6 product-related tickets" in out
+    assert "12 customer messages from 6 of 6 product-related tickets" in out
     assert "+50.0% vs. previous 30 days" in out
     assert "Atlas Short (style in the Atlas family)" in out
     assert "(America/New_York)" in out
@@ -171,7 +130,7 @@ def test_atlas_short_end_to_end():
 def test_sample_count_is_what_synthesis_received():
     ids = [f"conv-{i}" for i in range(85)]
     cmd = parse_command('/voc L30 product:"Charter Twill Pant"')
-    wh = FakeWarehouse(cmd, ids, PREVIOUS, messages=_messages(ids, per_conversation=2))
+    wh = FakeWarehouse(cmd, ids, PREVIOUS, messages=_messages(ids, per_conversation=2, product="Charter Twill Pant"))
     data, out, llm = _run(cmd, wh)
     prompt = llm.chat.completions.create.call_args.kwargs["messages"][1]["content"]
     assert "[150]" in prompt and "[151]" not in prompt
@@ -180,13 +139,13 @@ def test_sample_count_is_what_synthesis_received():
     assert pf["cleaned_message_count"] == 170
     assert pf["sample_count"] == 150
     assert any("150 highest-ranked of 170" in c for c in pf["caveats"])
-    assert "150 customer messages from 85 product-related tickets" in out
+    assert "150 customer messages from 75 of 85 product-related tickets" in out
 
 
 def test_message_cap_is_disclosed_as_sample_based():
     ids = [f"conv-{i}" for i in range(100)]
     cmd = parse_command('/voc L30 product:"Charter Twill Pant"')
-    wh = FakeWarehouse(cmd, ids, PREVIOUS, messages=_messages(ids, per_conversation=3))
+    wh = FakeWarehouse(cmd, ids, PREVIOUS, messages=_messages(ids, per_conversation=3, product="Charter Twill Pant"))
     data, out, _ = _run(cmd, wh)
     assert data["product_feedback"]["retrieved_message_count"] == 200
     assert "sample-based" in out
@@ -201,7 +160,7 @@ def test_previous_scope_uses_the_current_retrieval_pass():
     assert data["product_feedback"]["retrieval_mode"] == "fallback_body_only"
     assert len(wh.candidate_calls("previous", "body")) == 1
     assert data["product_feedback"]["previous_total_conversations"] == 4
-    assert "tickets without a product-feedback tag included" in out
+    assert "tag requirement was dropped to widen the search" in out
 
 
 def test_previous_scope_stays_strict_when_current_is_strict():
@@ -235,7 +194,7 @@ def test_synthesis_failure_still_reports_scope_and_counts():
     wh = FakeWarehouse(cmd, CURRENT, PREVIOUS, messages=_messages(CURRENT))
     _, out, _ = _run(cmd, wh, llm=_synthesis_client(raises=True))
     assert "Theme synthesis unavailable" in out
-    assert "12 customer messages from 6 product-related tickets" in out
+    assert "12 customer messages from 6 of 6 product-related tickets" in out
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +203,7 @@ def test_synthesis_failure_still_reports_scope_and_counts():
 
 def test_family_question_uses_family_scope():
     cmd = parse_command("/voc L30 product:Jetsetter")
-    wh = FakeWarehouse(cmd, CURRENT, PREVIOUS, messages=_messages(CURRENT))
+    wh = FakeWarehouse(cmd, CURRENT, PREVIOUS, messages=_messages(CURRENT, product="Jetsetter Tech Pant"))
     data, out, _ = _run(cmd, wh)
     strict = wh.candidate_calls("current", "strict")[0]
     assert "'%jetsetter%'" in strict
@@ -308,7 +267,7 @@ def test_nl_question_with_llm_down_keeps_product_through_formatting():
     cmd = parse_command(build_command_from_routing(routing))
     assert (cmd.command, cmd.days, cmd.filters["product"], cmd.filters["topic"]) == (
         "voc", 180, "Charter Twill Pant", "fit")
-    wh = FakeWarehouse(cmd, CURRENT, PREVIOUS, messages=_messages(CURRENT))
+    wh = FakeWarehouse(cmd, CURRENT, PREVIOUS, messages=_messages(CURRENT, product="Charter Twill Pant"))
     _, out, llm = _run(cmd, wh, llm=_synthesis_client(raises=True))
     assert "product: Charter Twill Pant" in out
     assert "last 180 complete days" in out

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from scout.taxonomy.products import ProductResolution
 
@@ -26,6 +26,58 @@ STRICT = "strict"
 BODY_ONLY = "fallback_body_only"
 EMPTY = "empty"
 RETRIEVAL_PASSES = (STRICT, BODY_ONLY)
+
+# Product-attribution tiers for one piece of customer evidence. These are
+# evidence categories, not probabilities. Routing confidence is separate.
+CONFIRMED = "confirmed"        # the customer named the product, or wrote a subject naming it
+ORDER_LINKED = "order_linked"  # a referenced order resolves this specific item
+INFERRED = "inferred"          # verified purchase history points to one plausible item
+UNRESOLVED = "unresolved"      # several plausible items, conflicts, or not enough to attribute
+ATTRIBUTION_TIERS = (CONFIRMED, ORDER_LINKED, INFERRED, UNRESOLVED)
+# Evidence about a different product. Not one of the tiers above; kept out of this product's evidence.
+OTHER_PRODUCT = "other_product"
+
+# Tiers that count as product evidence for themes by default.
+PRODUCT_EVIDENCE_TIERS = (CONFIRMED, ORDER_LINKED)
+
+
+@dataclass(frozen=True)
+class ProductAttribution:
+    """How one customer message was connected (or not) to the product.
+
+    ``method`` names the rule that decided the tier, and ``basis`` explains
+    it in words. Identifiers are Richpanel conversation/message IDs and
+    Shopify order/line IDs; customer emails are never stored here.
+    """
+
+    message_id: str
+    conversation_id: str
+    tier: str
+    method: str
+    basis: str
+    product: Optional[str] = None
+    candidates: Tuple[str, ...] = ()
+    order_ids: Tuple[str, ...] = ()
+    order_line_ids: Tuple[str, ...] = ()
+    message_created_at: Optional[str] = None
+    ticket_created_at: Optional[str] = None
+    customer_identity_verified: bool = False
+
+    def to_dict(self) -> Dict[str, object]:
+        return {
+            "message_id": self.message_id,
+            "conversation_id": self.conversation_id,
+            "tier": self.tier,
+            "method": self.method,
+            "basis": self.basis,
+            "product": self.product,
+            "candidates": list(self.candidates),
+            "order_ids": list(self.order_ids),
+            "order_line_ids": list(self.order_line_ids),
+            "message_created_at": self.message_created_at,
+            "ticket_created_at": self.ticket_created_at,
+            "customer_identity_verified": self.customer_identity_verified,
+        }
 
 
 @dataclass(frozen=True)
@@ -86,6 +138,7 @@ class ProductFeedbackScope:
     period: str = "current"
     capped: bool = False
     max_conversations: int = 500
+    attribution_tiers: Tuple[str, ...] = PRODUCT_EVIDENCE_TIERS
 
     @property
     def is_empty(self) -> bool:
@@ -122,16 +175,26 @@ class ProductFeedbackScope:
             "conversation_count": self.total_conversations,
             "capped": self.capped,
             "max_conversations": self.max_conversations,
+            "attribution_tiers": list(self.attribution_tiers),
         }
 
 
 @dataclass(frozen=True)
 class ProductFeedbackTheme:
-    """A single synthesised theme from customer messages."""
+    """A single synthesised theme from customer messages.
+
+    ``mention_count`` is the number of distinct tickets among the cited
+    evidence, computed in code from ``evidence_message_ids``. The quote is
+    kept only when it appears verbatim in a cited message.
+    """
 
     label: str
     mention_count: int
     representative_quote: Optional[str] = None
+    message_count: int = 0
+    evidence_message_ids: Tuple[str, ...] = ()
+    conversation_ids: Tuple[str, ...] = ()
+    quote_message_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -173,3 +236,8 @@ class ProductFeedbackResult:
     low_sample: bool = False
     retrieval_capped: bool = False
     topic: Optional[str] = None
+    attributions: List[ProductAttribution] = field(default_factory=list)
+    inferred_attributions: List[ProductAttribution] = field(default_factory=list)
+    evidence_stats: Dict[str, int] = field(default_factory=dict)
+    order_data: Dict[str, object] = field(default_factory=dict)
+    unlinked_theme_count: int = 0

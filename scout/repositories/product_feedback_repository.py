@@ -9,6 +9,8 @@ Owns all Snowflake SQL for the product-feedback pipeline:
 Candidate queries take an explicit, timezone-aware window and the same
 channel / tag / agent filters that ``queries/voc.py`` applies to metrics.
 Product phrases are matched as given; no pass broadens them to a first word.
+A body mention counts only in a customer-authored message, so an agent
+reply or product recommendation does not pull a ticket into scope.
 
 No business logic lives here — only query building and execution.
 """
@@ -127,7 +129,7 @@ def fetch_strict_candidates(
     JOIN MESSAGES m ON m.CONVERSATION_ID = c.ID
     , LATERAL FLATTEN(input => PARSE_JSON(c.TAGS)) f
     WHERE f.value::STRING IN ({tag_list})
-      AND ({body_pred} OR {subj_pred})
+      AND ((m.AUTHOR_ID = c.CUSTOMER_ID AND {body_pred}) OR {subj_pred})
       {created_at_window(start, end)}
       {build_scope_filters(filters)}
       {_AUTOREPLY_EXCLUSION}
@@ -168,7 +170,7 @@ def fetch_fallback_body_only_candidates(
         c.CUSTOMER_EMAIL
     FROM CONVERSATIONS c
     JOIN MESSAGES m ON m.CONVERSATION_ID = c.ID
-    WHERE ({body_pred} OR {subj_pred})
+    WHERE ((m.AUTHOR_ID = c.CUSTOMER_ID AND {body_pred}) OR {subj_pred})
       {created_at_window(start, end)}
       {build_scope_filters(filters)}
       {_AUTOREPLY_EXCLUSION}
@@ -227,6 +229,100 @@ def fetch_customer_messages(
     """
     logger.info("Fetching customer messages: conversations=%d, strict=%s, max=%d",
                 len(conversation_ids), strict_customer, max_messages)
+    return execute_query_dict(sql)
+
+
+def _id_list(conversation_ids: List[str]) -> str:
+    return ", ".join(f"'{cid.replace(chr(39), '')}'" for cid in conversation_ids)
+
+
+def fetch_agent_messages(
+    conversation_ids: List[str],
+    max_messages: int = 400,
+) -> List[Dict[str, Any]]:
+    """Non-customer message bodies in these conversations.
+
+    Used only to recognise agent text a customer quoted back. Never evidence.
+    """
+    if not conversation_ids:
+        return []
+    sql = f"""
+    SELECT
+        m.ID            AS MESSAGE_ID,
+        m.CONVERSATION_ID,
+        m.BODY
+    FROM MESSAGES m
+    JOIN CONVERSATIONS c ON m.CONVERSATION_ID = c.ID
+    WHERE m.CONVERSATION_ID IN ({_id_list(conversation_ids)})
+      AND m.AUTHOR_ID IS DISTINCT FROM c.CUSTOMER_ID
+      {_BODY_NOT_EMPTY}
+      {_NOT_DELETED}
+    ORDER BY m.CREATED_AT DESC
+    LIMIT {int(max_messages)}
+    """
+    logger.info("Fetching agent messages for quote removal: conversations=%d", len(conversation_ids))
+    return execute_query_dict(sql)
+
+
+def fetch_conversation_context(conversation_ids: List[str]) -> List[Dict[str, Any]]:
+    """Per conversation: subject, channel, creation time, customer email, and
+    whether the customer wrote the first message (and so the subject).
+
+    The email is used only to match orders; it is not logged or displayed.
+    """
+    if not conversation_ids:
+        return []
+    sql = f"""
+    SELECT
+        c.ID                                    AS CONVERSATION_ID,
+        ANY_VALUE(c.SUBJECT)                    AS SUBJECT,
+        ANY_VALUE(c.CHANNEL)                    AS CHANNEL,
+        ANY_VALUE(c.CREATED_AT)                 AS CREATED_AT,
+        ANY_VALUE(LOWER(TRIM(c.CUSTOMER_EMAIL))) AS CUSTOMER_EMAIL,
+        MIN_BY(IFF(m.AUTHOR_ID = c.CUSTOMER_ID, TRUE, FALSE), m.CREATED_AT) AS FIRST_FROM_CUSTOMER
+    FROM CONVERSATIONS c
+    JOIN MESSAGES m ON m.CONVERSATION_ID = c.ID
+    WHERE c.ID IN ({_id_list(conversation_ids)})
+      {_NOT_DELETED}
+    GROUP BY c.ID
+    """
+    logger.info("Fetching conversation context: conversations=%d", len(conversation_ids))
+    return execute_query_dict(sql)
+
+
+def fetch_tagged_candidates_outside_scope(
+    tag_uuids: List[str],
+    start: datetime,
+    end: datetime,
+    exclude_ids: List[str],
+    filters: Optional[Mapping[str, str]] = None,
+    max_conversations: int = 200,
+) -> List[Dict[str, Any]]:
+    """Product-feedback-tagged conversations in the window that are not in the scope.
+
+    These are candidates for the inferred tier: the customer described a
+    product issue without a product mention that matched.
+    """
+    if not tag_uuids:
+        return []
+    tag_list = ", ".join(f"'{u}'" for u in tag_uuids)
+    exclude = f"AND c.ID NOT IN ({_id_list(exclude_ids)})" if exclude_ids else ""
+    sql = f"""
+    SELECT DISTINCT
+        c.ID            AS CONVERSATION_ID,
+        c.CREATED_AT
+    FROM CONVERSATIONS c
+    , LATERAL FLATTEN(input => PARSE_JSON(c.TAGS)) f
+    WHERE f.value::STRING IN ({tag_list})
+      {created_at_window(start, end)}
+      {build_scope_filters(filters)}
+      {exclude}
+      {_AUTOREPLY_EXCLUSION}
+      AND c._FIVETRAN_DELETED = FALSE
+    ORDER BY c.CREATED_AT DESC
+    LIMIT {int(max_conversations)}
+    """
+    logger.info("Inferred-tier candidates: window=%s..%s, excluded=%d", start.isoformat(), end.isoformat(), len(exclude_ids))
     return execute_query_dict(sql)
 
 

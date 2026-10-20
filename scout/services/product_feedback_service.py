@@ -31,30 +31,61 @@ from zoneinfo import ZoneInfo
 from scout.llm import MODEL, get_client
 
 from scout.taxonomy.tags import tag_names_for_group
-from scout.taxonomy.products import ProductResolution, alias_only_catalog, resolve_product
+from scout.taxonomy.products import ProductCatalog, ProductResolution, alias_only_catalog, resolve_product
+from scout.models.orders import OrderRecord
 from scout.models.product_feedback import (
     BODY_ONLY,
     EMPTY,
+    INFERRED,
     STRICT,
+    ProductAttribution,
     ProductFeedbackRequest,
     ProductFeedbackScope,
     ProductFeedbackResult,
     ProductFeedbackTheme,
 )
 from scout.repositories.product_feedback_repository import (
+    fetch_agent_messages,
+    fetch_conversation_context,
     fetch_strict_candidates,
     fetch_fallback_body_only_candidates,
     fetch_customer_messages,
+    fetch_tagged_candidates_outside_scope,
     resolve_tag_names_to_uuids,
 )
-from scout.services.evidence_service import process_evidence
+from scout.services.attribution_service import (
+    LOOKBACK_DAYS,
+    Attributor,
+    ConversationContext,
+    ProductTarget,
+    as_aware,
+    order_numbers_in,
+    verified_email,
+)
+from scout.services.evidence_service import process_evidence_with_stats, scrub_personal_details
+from scout.services.order_lookup import OrderLookup, UnavailableOrderLookup
 
 logger = logging.getLogger("scout.services.product_feedback")
 
 # Messages sent to the model in one synthesis call.
 SYNTHESIS_MAX_MESSAGES = 150
 
+# Bound on product-feedback tickets outside the scope checked for the inferred tier.
+INFERRED_CANDIDATE_LIMIT = 200
+
 _SCOPE_FILTER_KEYS = ("channel", "tag", "agent")
+
+_MAX_QUOTE_CHARS = 220
+
+
+def _tag_uuids(tag_groups: List[str]) -> List[str]:
+    names: Set[str] = set()
+    for group in tag_groups:
+        try:
+            names.update(tag_names_for_group(group))
+        except KeyError:
+            logger.warning("Unknown tag group: %s", group)
+    return resolve_tag_names_to_uuids(names)
 
 
 def _window(request: ProductFeedbackRequest) -> Tuple[datetime, datetime]:
@@ -99,14 +130,7 @@ def get_candidate_scope(request: ProductFeedbackRequest) -> ProductFeedbackScope
     filters = {k: str(v) for k, v in request.filters.items() if k in _SCOPE_FILTER_KEYS and v}
     cap = request.max_conversations
 
-    # Resolve tag scope → UUIDs
-    all_tag_names: Set[str] = set()
-    for group in tag_groups:
-        try:
-            all_tag_names.update(tag_names_for_group(group))
-        except KeyError:
-            logger.warning("Unknown tag group: %s", group)
-    tag_uuids = resolve_tag_names_to_uuids(all_tag_names)
+    tag_uuids = _tag_uuids(tag_groups)
 
     logger.info(
         "Scope discovery (%s): product=%s, phrases=%s, tag_uuids=%d, window=%s..%s, filters=%s",
@@ -213,14 +237,24 @@ def retrieval_ceiling_for(scope: ProductFeedbackScope) -> str:
 def get_product_feedback_for_scope(
     scope: ProductFeedbackScope,
     request: ProductFeedbackRequest,
+    catalog: Optional[ProductCatalog] = None,
+    order_lookup: Optional[OrderLookup] = None,
 ) -> ProductFeedbackResult:
-    """Fetch customer messages for the given scope and synthesise themes.
+    """Fetch customer messages for the given scope, attribute them, and synthesise themes.
 
     Requires a ProductFeedbackScope from get_candidate_scope().
     Does NOT re-run scope discovery — it uses scope.conversation_ids directly.
+
+    Only customer-authored messages are read; authorship is never relaxed to
+    reach a sample size. Every message gets an attribution tier. Only tiers in
+    ``scope.attribution_tiers`` (confirmed and order-linked by default) go to
+    synthesis. Inferred evidence is reported separately.
     """
     product = scope.product_name
     aliases = scope.aliases_used
+    catalog = catalog if catalog is not None else alias_only_catalog()
+    lookup: OrderLookup = order_lookup if order_lookup is not None else UnavailableOrderLookup(
+        reason="Order data is not connected, so the order-linked and inferred tiers were not evaluated.")
     if scope.start is not None and scope.end is not None:
         timeframe_label = _window_label(scope.start, scope.end)
     else:
@@ -240,38 +274,40 @@ def get_product_feedback_for_scope(
             low_sample=True,
             retrieval_capped=scope.capped,
             topic=scope.topic,
+            order_data=_order_data(lookup),
         )
 
-    # --- Fetch customer-authored messages ---
+    # --- Customer-authored messages, plus agent text used only for quote removal ---
+    contexts = _contexts(scope.conversation_ids)
     raw_messages = fetch_customer_messages(
         conversation_ids=scope.conversation_ids,
         max_messages=request.max_messages,
         strict_customer=True,
     )
-
-    # If strict customer filter returns too few, try broad filter
-    if len(raw_messages) < request.min_sample_size:
-        logger.info("Strict customer filter returned %d, trying broad filter", len(raw_messages))
-        raw_messages = fetch_customer_messages(
-            conversation_ids=scope.conversation_ids,
-            max_messages=request.max_messages,
-            strict_customer=False,
-        )
     messages_capped = len(raw_messages) >= request.max_messages
+    agent_messages = fetch_agent_messages(scope.conversation_ids)
 
     # --- Evidence pipeline ---
-    cleaned_messages = process_evidence(
+    cleaned_messages, stats = process_evidence_with_stats(
         raw_messages=raw_messages,
         aliases=aliases,
         body_key="BODY",
         max_output=request.max_messages,
+        agent_messages=agent_messages,
     )
 
-    analysed = [m for m in cleaned_messages if m.get("cleaned_body")][:SYNTHESIS_MAX_MESSAGES]
+    # --- Attribution ---
+    target = ProductTarget(scope.resolution or _resolution(request), catalog)
+    attributions = _attribute(cleaned_messages, contexts, target, lookup)
+    tier_of = [a.tier for a in attributions]
+    evidence = [m for m, tier in zip(cleaned_messages, tier_of) if tier in scope.attribution_tiers]
+    inferred_extra = _inferred_outside_scope(scope, target, lookup) if lookup.available else []
+
+    analysed = [m for m in evidence if m.get("cleaned_body")][:SYNTHESIS_MAX_MESSAGES]
     total_analysed = len(analysed)
     logger.info(
-        "Messages: %d retrieved, %d cleaned, %d analysed",
-        len(raw_messages), len(cleaned_messages), total_analysed,
+        "Messages: %d retrieved, %d cleaned, %d product evidence, %d analysed",
+        len(raw_messages), len(cleaned_messages), len(evidence), total_analysed,
     )
 
     # --- Build caveats (merge scope caveats + synthesis caveats) ---
@@ -281,38 +317,41 @@ def get_product_feedback_for_scope(
             f"Message retrieval stopped at the {request.max_messages} most recent customer "
             "messages; themes are sample-based."
         )
-    if len(cleaned_messages) > total_analysed:
+    if len(evidence) > total_analysed:
         caveats.append(
-            f"Themes use the {total_analysed} highest-ranked of {len(cleaned_messages)} "
-            "cleaned messages."
+            f"Themes use the {total_analysed} highest-ranked of {len(evidence)} "
+            "attributed messages."
         )
+    if not lookup.available:
+        caveats.append(lookup.reason)
     low_sample = total_analysed < request.min_sample_size
     if low_sample:
         caveats.append(
-            f"Low sample size ({total_analysed} messages). "
+            f"Low sample size ({total_analysed} attributed messages). "
             "Results are directional only — try a longer timeframe for more data."
         )
 
     # --- LLM synthesis ---
+    unlinked = 0
     if total_analysed > 0:
         synthesis = _synthesize_themes(analysed, product, topic=scope.topic)
+        themes, unlinked = _link_themes(synthesis.get("themes", []), analysed)
+        if unlinked:
+            caveats.append(
+                f"{unlinked} synthesised theme(s) without valid evidence references were dropped."
+            )
     else:
+        reason = (
+            "No customer message could be attributed to this product."
+            if cleaned_messages else
+            "Messages were found but contained only auto-replies, surveys, or agent responses."
+        )
         synthesis = {
-            "headline": f"No usable customer messages found for '{product}' after cleaning.",
-            "themes": [],
-            "so_what": "Messages were found but contained only auto-replies, surveys, or agent responses.",
+            "headline": f"No usable customer messages attributed to '{product}'.",
+            "so_what": reason,
             "recommended_action": "Try a longer timeframe or review tickets manually.",
         }
-
-    # --- Build result ---
-    themes = [
-        ProductFeedbackTheme(
-            label=t.get("label", ""),
-            mention_count=t.get("mention_count", 0),
-            representative_quote=t.get("representative_quote"),
-        )
-        for t in synthesis.get("themes", [])
-    ]
+        themes = []
 
     return ProductFeedbackResult(
         product_name=product,
@@ -332,7 +371,154 @@ def get_product_feedback_for_scope(
         low_sample=low_sample,
         retrieval_capped=scope.capped or messages_capped,
         topic=scope.topic,
+        attributions=attributions,
+        inferred_attributions=inferred_extra,
+        evidence_stats=stats.to_dict(),
+        order_data=_order_data(lookup),
+        unlinked_theme_count=unlinked,
     )
+
+
+def _order_data(lookup: OrderLookup) -> Dict[str, object]:
+    return {"available": lookup.available, "source": lookup.source, "reason": lookup.reason}
+
+
+def _contexts(conversation_ids: List[str]) -> Dict[str, ConversationContext]:
+    rows = fetch_conversation_context(conversation_ids)
+    return {str(r.get("CONVERSATION_ID")): ConversationContext.from_row(r) for r in rows}
+
+
+def _prefetch_orders(
+    messages: List[Dict[str, Any]],
+    contexts: Dict[str, ConversationContext],
+    lookup: OrderLookup,
+) -> Tuple[Dict[str, OrderRecord], Dict[str, List[OrderRecord]]]:
+    """Two bounded lookups: orders the customers reference, then their recent order history."""
+    if not lookup.available:
+        return {}, {}
+    refs: Set[str] = set()
+    for m in messages:
+        refs.update(order_numbers_in(str(m.get("cleaned_body", ""))))
+    for ctx in contexts.values():
+        refs.update(order_numbers_in(ctx.subject))
+    by_number = {o.order_number: o for o in lookup.orders_by_number(sorted(refs)) if o.order_number}
+
+    emails = sorted({e for e in (verified_email(c.customer_email) for c in contexts.values()) if e})
+    created = [t for t in (as_aware(c.created_at) for c in contexts.values()) if t is not None]
+    history: Dict[str, List[OrderRecord]] = {}
+    if emails and created:
+        start = min(created) - timedelta(days=LOOKBACK_DAYS)
+        for order in lookup.orders_for_emails(emails, start, max(created)):
+            email = verified_email(order.customer_email)
+            if email:
+                history.setdefault(email, []).append(order)
+    return by_number, history
+
+
+def _attribute(
+    messages: List[Dict[str, Any]],
+    contexts: Dict[str, ConversationContext],
+    target: ProductTarget,
+    lookup: OrderLookup,
+) -> List[ProductAttribution]:
+    by_number, history = _prefetch_orders(messages, contexts, lookup)
+    attributor = Attributor(target, contexts, by_number, history, lookup.available)
+    return attributor.attribute(messages)
+
+
+def _inferred_outside_scope(
+    scope: ProductFeedbackScope,
+    target: ProductTarget,
+    lookup: OrderLookup,
+) -> List[ProductAttribution]:
+    """Inferred evidence from product-feedback tickets that never matched a product phrase.
+
+    Only tickets whose customer bought this product before the ticket are
+    read. These stay out of the scope's counts and themes.
+    """
+    if scope.start is None or scope.end is None:
+        return []
+    rows = fetch_tagged_candidates_outside_scope(
+        tag_uuids=_tag_uuids(list(scope.tag_groups_used)),
+        start=scope.start,
+        end=scope.end,
+        exclude_ids=scope.conversation_ids,
+        filters=scope.filters,
+        max_conversations=INFERRED_CANDIDATE_LIMIT,
+    )
+    ids = [str(r["CONVERSATION_ID"]) for r in rows]
+    if not ids:
+        return []
+    contexts = _contexts(ids)
+    _, history = _prefetch_orders([], contexts, lookup)
+    probe = Attributor(target, contexts, {}, history, True)
+    candidates = []
+    for cid, ctx in contexts.items():
+        orders = probe.history_for(ctx) or []
+        if any(target.owns(target.product_of_line(line.product_title)) for o in orders for line in o.lines):
+            candidates.append(cid)
+    if not candidates:
+        return []
+    raw = fetch_customer_messages(candidates, max_messages=200, strict_customer=True)
+    agent = fetch_agent_messages(candidates)
+    cleaned, _ = process_evidence_with_stats(raw, [], agent_messages=agent)
+    attributions = _attribute(cleaned, {c: contexts[c] for c in candidates}, target, lookup)
+    return [a for a in attributions if a.tier == INFERRED]
+
+
+def _link_themes(
+    raw_themes: List[Dict[str, Any]],
+    analysed: List[Dict[str, Any]],
+) -> Tuple[List[ProductFeedbackTheme], int]:
+    """Turn model themes into evidence-linked themes; counts are computed here.
+
+    ``mention_count`` is distinct tickets among valid cited messages. A quote
+    is kept only if it appears in a cited message, then personal details are
+    scrubbed. Themes with no valid citations are dropped and counted.
+    """
+    themes: List[ProductFeedbackTheme] = []
+    dropped = 0
+    for raw in raw_themes if isinstance(raw_themes, list) else []:
+        if not isinstance(raw, dict):
+            dropped += 1
+            continue
+        refs = raw.get("evidence") or []
+        idx = sorted({int(r) for r in refs if isinstance(r, (int, float)) or str(r).isdigit()}
+                     if isinstance(refs, list) else set())
+        cited = [analysed[i - 1] for i in idx if 1 <= i <= len(analysed)]
+        if not cited:
+            dropped += 1
+            continue
+        conversations = tuple(dict.fromkeys(str(m.get("CONVERSATION_ID")) for m in cited))
+        quote, quote_id = _verified_quote(str(raw.get("representative_quote") or ""), cited)
+        themes.append(ProductFeedbackTheme(
+            label=str(raw.get("label", "")).strip(),
+            mention_count=len(conversations),
+            representative_quote=quote,
+            message_count=len(cited),
+            evidence_message_ids=tuple(str(m.get("MESSAGE_ID", "")) for m in cited),
+            conversation_ids=conversations,
+            quote_message_id=quote_id,
+        ))
+    themes.sort(key=lambda t: (-t.mention_count, -t.message_count))
+    return themes, dropped
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.lower().split())
+
+
+def _verified_quote(quote: str, cited: List[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
+    needle = _squash(quote.strip().strip('"').strip())
+    if len(needle) < 8:
+        return None, None
+    for m in cited:
+        if needle in _squash(str(m.get("cleaned_body", ""))):
+            text = scrub_personal_details(quote.strip().strip('"').strip())
+            if len(text) > _MAX_QUOTE_CHARS:
+                text = text[:_MAX_QUOTE_CHARS].rsplit(" ", 1)[0] + "…"
+            return text, str(m.get("MESSAGE_ID", ""))
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -347,10 +533,12 @@ def _synthesize_themes(
     """Send cleaned message bodies to the LLM for theme synthesis.
 
     The caller decides which messages are analysed; every message passed in
-    is sent, so the caller's count is the analysed count.
+    is sent, so the caller's count is the analysed count. Message ``[n]`` is
+    ``cleaned_messages[n - 1]``, which is how ``_link_themes`` resolves the
+    model's ``evidence`` numbers.
     """
-    bodies = [m["cleaned_body"] for m in cleaned_messages if m.get("cleaned_body")]
-    if not bodies:
+    bodies = [str(m.get("cleaned_body", "")) for m in cleaned_messages]
+    if not any(bodies):
         return {
             "headline": f"No usable customer messages found for {product_name}.",
             "themes": [],
@@ -362,13 +550,13 @@ def _synthesize_themes(
 
     system_prompt = """You are a customer-insights analyst for a premium menswear brand.
 You will receive numbered customer messages about a specific product.
-Your job is to synthesize the key themes, with mention counts and representative quotes.
+Your job is to synthesize the key themes and cite the messages that support each one.
 
 Return ONLY valid JSON with this structure:
 {
   "headline": "One-sentence summary of what customers are mainly saying",
   "themes": [
-    {"label": "Theme name", "mention_count": N, "representative_quote": "Exact customer quote"},
+    {"label": "Theme name", "evidence": [message numbers], "representative_quote": "Exact customer quote"},
     ...
   ],
   "so_what": "One-sentence business implication",
@@ -377,9 +565,9 @@ Return ONLY valid JSON with this structure:
 
 Rules:
 - Themes must be grounded in the actual messages. Do not invent themes.
-- mention_count must reflect how many of the numbered messages support that theme.
-- representative_quote must be a real excerpt from the messages (not fabricated).
-- Order themes by mention_count descending.
+- evidence must list every numbered message that supports the theme, and only those.
+- representative_quote must be copied word for word from one of the cited messages.
+- A theme supported by one message is a single report; do not describe it as common.
 - Maximum 7 themes.
 - Keep headline, so_what, and recommended_action concise (one sentence each).
 - If a focus topic is given, the headline must say what customers say about that topic,
@@ -406,7 +594,10 @@ Rules:
             raw = raw[:-3]
         if raw.startswith("json"):
             raw = raw[4:]
-        return json.loads(raw.strip())
+        parsed = json.loads(raw.strip())
+        if not isinstance(parsed, dict):
+            raise ValueError("synthesis output is not a JSON object")
+        return parsed
     except Exception as e:
         logger.error("LLM synthesis failed: %s", e)
         return {

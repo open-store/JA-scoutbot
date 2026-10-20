@@ -35,6 +35,8 @@ from scout.models.product_feedback import (
     ProductFeedbackResult,
     ProductFeedbackScope,
 )
+from scout.services.attribution_service import summarise
+from scout.services.order_lookup import OrderLookup, get_order_lookup
 from scout.services.product_catalog_service import get_catalog
 from scout.services.product_feedback_service import (
     get_candidate_scope,
@@ -48,7 +50,11 @@ logger = logging.getLogger("scout.services.voc_service")
 SCOPE_FILTER_KEYS = ("channel", "tag", "agent")
 
 
-def run_product_voc(cmd: ParsedCommand, catalog: Optional[ProductCatalog] = None) -> dict:
+def run_product_voc(
+    cmd: ParsedCommand,
+    catalog: Optional[ProductCatalog] = None,
+    order_lookup: Optional[OrderLookup] = None,
+) -> dict:
     """Execute a product-filtered VOC query using the shared scope pattern.
 
     Flow:
@@ -111,8 +117,12 @@ def run_product_voc(cmd: ParsedCommand, catalog: Optional[ProductCatalog] = None
         previous_conversation_ids=previous_scope.conversation_ids,
     )
 
-    # Step 4 — Synthesis (uses the same scope, no re-discovery)
-    pf_result = get_product_feedback_for_scope(scope, request)
+    # Step 4 — Attribution + synthesis (uses the same scope, no re-discovery)
+    pf_result = get_product_feedback_for_scope(
+        scope, request,
+        catalog=catalog,
+        order_lookup=order_lookup if order_lookup is not None else get_order_lookup(),
+    )
 
     # Step 5 — Merge
     voc_result["product_feedback"] = product_feedback_payload(pf_result, scope, previous_scope)
@@ -148,6 +158,7 @@ def product_feedback_payload(
         "retrieved_message_count": result.retrieved_message_count,
         "cleaned_message_count": result.cleaned_message_count,
         "sample_count": result.total_messages_analysed,
+        "sample_ticket_count": _analysed_ticket_count(result),
         "low_sample": result.low_sample,
         "retrieval_mode": result.retrieval_mode,
         "retrieval_capped": result.retrieval_capped,
@@ -156,7 +167,11 @@ def product_feedback_payload(
             {
                 "label": t.label,
                 "mention_count": t.mention_count,
+                "message_count": t.message_count,
                 "representative_quote": t.representative_quote,
+                "quote_message_id": t.quote_message_id,
+                "evidence_message_ids": list(t.evidence_message_ids),
+                "conversation_ids": list(t.conversation_ids),
             }
             for t in result.themes
         ],
@@ -166,9 +181,24 @@ def product_feedback_payload(
         "source": result.source,
         "candidate_conversation_ids": result.candidate_conversation_ids,
         "evidence_message_ids": result.analysed_message_ids,
+        "attribution": {
+            "tiers_in_themes": list(scope.attribution_tiers),
+            "in_scope": summarise(result.attributions),
+            "inferred_outside_scope": summarise(result.inferred_attributions),
+            "order_data": result.order_data,
+        },
+        "attributions": [a.to_dict() for a in result.attributions],
+        "inferred_attributions": [a.to_dict() for a in result.inferred_attributions],
+        "evidence_stats": result.evidence_stats,
+        "unlinked_theme_count": result.unlinked_theme_count,
         "scope": summary,
         "previous_scope": previous_scope.summary() if previous_scope else None,
     }
+
+
+def _analysed_ticket_count(result: ProductFeedbackResult) -> int:
+    analysed = set(result.analysed_message_ids)
+    return len({a.conversation_id for a in result.attributions if a.message_id in analysed})
 
 
 def _unresolved_result(cmd: ParsedCommand, resolution: ProductResolution) -> dict:

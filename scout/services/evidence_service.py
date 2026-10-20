@@ -4,16 +4,20 @@ Evidence service — message cleaning and ranking.
 Responsible for:
   - Stripping HTML from message bodies
   - Removing agent signatures, CSAT survey templates, quoted replies
+  - Removing agent text a customer quoted back in their reply
   - Filtering out auto-reply content in message bodies
   - Removing empty / too-short messages after cleaning
-  - Deduplicating near-identical messages
+  - Deduplicating repeated messages, quoted chains, and near-copies
   - Ranking messages by relevance to the product query
+  - Scrubbing personal details from quotes before display
 """
 from __future__ import annotations
 
+import difflib
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 logger = logging.getLogger("scout.services.evidence")
 
@@ -29,6 +33,8 @@ _SIGNATURE_PATTERNS = [
     re.compile(r"(?:thanks|thank you|best|warm regards|regards|cheers|sincerely),?\s*\n.*?jack\s*archer", re.I | re.S),
     re.compile(r"\n\s*(?:—|--|--)\s*\n.*", re.S),
     re.compile(r"\nthe jack archer team.*", re.I | re.S),
+    re.compile(r"\n?\s*sent from my (?:iphone|ipad|android|samsung|galaxy|mobile device)[^\n]*", re.I),
+    re.compile(r"\n?\s*get outlook for (?:ios|android)[^\n]*", re.I),
 ]
 
 # CSAT survey template
@@ -40,6 +46,8 @@ _CSAT_SURVEY_RE = re.compile(
 # Quoted reply indicators
 _QUOTED_REPLY_PATTERNS = [
     re.compile(r"on\s+\w+\s+\d+.*?wrote:.*", re.I | re.S),
+    # Gmail / Apple Mail: "On Mon, Jan 5, 2026 at 10:00 AM Jack Archer <...> wrote:"
+    re.compile(r"(?:^|\n)\s*on\s[^\n]{0,200}?(?:\n[^\n]{0,120}?)?\bwrote:.*", re.I | re.S),
     re.compile(r"from:.*?sent:.*?subject:.*", re.I | re.S),
     re.compile(r"^>.*$", re.M),
     re.compile(r"-{3,}\s*original\s+message\s*-{3,}.*", re.I | re.S),
@@ -61,6 +69,15 @@ _URL_RE = re.compile(r"https?://\S+")
 # Collapse whitespace
 _MULTI_NEWLINE_RE = re.compile(r"\n{3,}")
 _MULTI_SPACE_RE = re.compile(r"[ \t]{2,}")
+
+# Personal details removed from displayed quotes
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_PHONE_RE = re.compile(r"(?<!\w)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}(?!\w)")
+_ORDER_REF_RE = re.compile(r"#\s?\d{3,}")
+_LONG_NUMBER_RE = re.compile(r"\b\d{6,}\b")
+
+# Agent sentences shorter than this are too generic to subtract safely.
+_MIN_AGENT_SENTENCE = 30
 
 
 # ---------------------------------------------------------------------------
@@ -103,6 +120,37 @@ def clean_message_body(body: str) -> str:
     return text
 
 
+def _sentences(text: str) -> List[str]:
+    return [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text) if s.strip()]
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", " ", text.lower())).strip()
+
+
+def strip_agent_text(body: str, agent_bodies: Iterable[str]) -> Tuple[str, bool]:
+    """Remove sentences that also appear in an agent message of the same conversation.
+
+    Customers often reply above, or paste, the agent's text, including
+    product recommendations. That text is not customer testimony. Returns
+    (remaining text, whether anything was removed).
+    """
+    agent_sentences = {
+        _norm(s) for b in agent_bodies for s in _sentences(clean_message_body(b))
+        if len(s) >= _MIN_AGENT_SENTENCE
+    }
+    if not agent_sentences:
+        return body, False
+    kept: List[str] = []
+    removed = False
+    for sentence in _sentences(body):
+        if len(sentence) >= _MIN_AGENT_SENTENCE and _norm(sentence) in agent_sentences:
+            removed = True
+            continue
+        kept.append(sentence)
+    return (" ".join(kept), removed) if removed else (body, False)
+
+
 def is_autoreply_body(body: str) -> bool:
     """Check if a message body looks like an auto-reply."""
     for pat in _AUTOREPLY_BODY_PATTERNS:
@@ -114,6 +162,15 @@ def is_autoreply_body(body: str) -> bool:
 def is_too_short(body: str, min_chars: int = 15) -> bool:
     """Check if a cleaned body is too short to be useful evidence."""
     return len(body.strip()) < min_chars
+
+
+def scrub_personal_details(text: str) -> str:
+    """Replace emails, phone numbers, order references, and long numbers for display."""
+    text = _EMAIL_RE.sub("[email]", text)
+    text = _PHONE_RE.sub("[phone]", text)
+    text = _ORDER_REF_RE.sub("[order]", text)
+    text = _LONG_NUMBER_RE.sub("[number]", text)
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -143,6 +200,46 @@ def deduplicate_messages(
     return unique
 
 
+def collapse_repeats(
+    messages: List[Dict[str, Any]],
+    body_key: str = "cleaned_body",
+    author_key: str = "AUTHOR_ID",
+    similarity: float = 0.9,
+) -> Tuple[List[Dict[str, Any]], int]:
+    """Collapse one customer's repeated or quoted-chain messages.
+
+    For the same author, a message whose text is contained in another of
+    their messages, or that is at least *similarity* alike, is dropped in
+    favour of the longer one. Returns (kept messages, number dropped).
+    """
+    by_author: Dict[str, List[int]] = {}
+    for idx, msg in enumerate(messages):
+        author = str(msg.get(author_key) or "")
+        if author:
+            by_author.setdefault(author, []).append(idx)
+    drop: set = set()
+    for indexes in by_author.values():
+        ordered = sorted(indexes, key=lambda i: len(messages[i].get(body_key, "")), reverse=True)
+        for pos, i in enumerate(ordered):
+            if i in drop:
+                continue
+            longer = _norm(messages[i].get(body_key, ""))
+            for j in ordered[pos + 1:]:
+                if j in drop:
+                    continue
+                shorter = _norm(messages[j].get(body_key, ""))
+                if not shorter:
+                    continue
+                if shorter in longer:
+                    drop.add(j)
+                    continue
+                matcher = difflib.SequenceMatcher(None, shorter, longer)
+                if matcher.real_quick_ratio() >= similarity and matcher.ratio() >= similarity:
+                    drop.add(j)
+    kept = [m for i, m in enumerate(messages) if i not in drop]
+    return kept, len(drop)
+
+
 # ---------------------------------------------------------------------------
 # Relevance ranking
 # ---------------------------------------------------------------------------
@@ -168,6 +265,71 @@ def rank_by_product_relevance(
 # Full evidence pipeline
 # ---------------------------------------------------------------------------
 
+@dataclass
+class EvidenceStats:
+    """What the pipeline removed, for disclosure."""
+
+    raw: int = 0
+    autoreplies: int = 0
+    too_short: int = 0
+    agent_text_removed: int = 0
+    exact_duplicates: int = 0
+    repeats_collapsed: int = 0
+    kept: int = 0
+
+    def to_dict(self) -> Dict[str, int]:
+        return dict(self.__dict__)
+
+
+def process_evidence_with_stats(
+    raw_messages: List[Dict[str, Any]],
+    aliases: List[str],
+    body_key: str = "BODY",
+    max_output: int = 200,
+    agent_messages: Optional[List[Dict[str, Any]]] = None,
+) -> Tuple[List[Dict[str, Any]], EvidenceStats]:
+    """Clean → strip quoted agent text → filter → dedup → rank, with counts.
+
+    ``agent_messages`` are non-customer messages from the same conversations.
+    They are used only to recognise agent text quoted inside customer
+    messages, never as evidence.
+    """
+    stats = EvidenceStats(raw=len(raw_messages))
+    agent_by_conversation: Dict[str, List[str]] = {}
+    for msg in agent_messages or []:
+        agent_by_conversation.setdefault(str(msg.get("CONVERSATION_ID")), []).append(msg.get(body_key, "") or "")
+
+    cleaned: List[Dict[str, Any]] = []
+    for msg in raw_messages:
+        raw_body = msg.get(body_key, "") or ""
+        body = clean_message_body(raw_body)
+        agent_bodies = agent_by_conversation.get(str(msg.get("CONVERSATION_ID")), [])
+        body, removed = strip_agent_text(body, agent_bodies)
+        if removed:
+            stats.agent_text_removed += 1
+
+        if is_autoreply_body(body):
+            stats.autoreplies += 1
+            continue
+
+        if is_too_short(body):
+            stats.too_short += 1
+            continue
+
+        enriched = dict(msg)
+        enriched["cleaned_body"] = body
+        cleaned.append(enriched)
+
+    unique = deduplicate_messages(cleaned)
+    stats.exact_duplicates = len(cleaned) - len(unique)
+    unique, stats.repeats_collapsed = collapse_repeats(unique)
+
+    ranked = rank_by_product_relevance(unique, aliases)[:max_output]
+    stats.kept = len(ranked)
+    logger.info("Evidence pipeline: %s", stats.to_dict())
+    return ranked, stats
+
+
 def process_evidence(
     raw_messages: List[Dict[str, Any]],
     aliases: List[str],
@@ -188,36 +350,5 @@ def process_evidence(
     -------
     List of cleaned, filtered, deduplicated, ranked message dicts.
     """
-    cleaned: List[Dict[str, Any]] = []
-    autoreply_count = 0
-    short_count = 0
-
-    for msg in raw_messages:
-        raw_body = msg.get(body_key, "") or ""
-        body = clean_message_body(raw_body)
-
-        if is_autoreply_body(body):
-            autoreply_count += 1
-            continue
-
-        if is_too_short(body):
-            short_count += 1
-            continue
-
-        enriched = dict(msg)
-        enriched["cleaned_body"] = body
-        cleaned.append(enriched)
-
-    logger.info(
-        "Evidence pipeline: %d raw → %d cleaned (removed %d auto-replies, %d too-short)",
-        len(raw_messages), len(cleaned), autoreply_count, short_count,
-    )
-
-    # Deduplicate
-    unique = deduplicate_messages(cleaned)
-    logger.info("After dedup: %d unique messages", len(unique))
-
-    # Rank by product relevance
-    ranked = rank_by_product_relevance(unique, aliases)
-
-    return ranked[:max_output]
+    messages, _ = process_evidence_with_stats(raw_messages, aliases, body_key=body_key, max_output=max_output)
+    return messages
