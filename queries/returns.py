@@ -1,18 +1,58 @@
-"""Returns analysis — Snowflake table ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS.
+"""`/returns`: refund volume and mix, plus return and exchange rates.
 
-This module stays separate so a later returns-rate and returns-feedback
-feature has a home. That feature is not built here.
+Refund volume and mix read ``ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS``,
+a Shopify refund export dated by refund date. It mixes Redo and non-Redo
+refunds, includes cancellations, and has no open returns, so its shares are
+shares of refund lines, not rates against orders.
 
-Note: The return % in this table is qty_returned / gross_quantity at the
-line-item level.  Because the table only contains return rows (not all orders),
-this gives ~99%.  True return rate requires joining with OS_ALL_ORDERS.
-We flag this in the output and report volume / mix metrics instead.
+Return and exchange rates are Redo units over eligible delivered Shopify units
+for a delivery cohort (``scout.returns.metrics``). They stay unavailable until
+``ANALYTICS.RETURN_REDO`` and the Shopify order lines are verified and the
+cohort maturity horizon is known. ``/returns`` never marks a rate validated.
 """
 
-from scout.integrations.snowflake import get_connection
-
+from scout.integrations.snowflake import execute_query_dict, get_connection
+from scout.returns import cohorts, metrics
+from scout.returns.metrics import (
+    CohortScope,
+    RatesReport,
+    UnitCounts,
+    evaluate_rates,
+    rollup_query,
+    source_blockers,
+    unavailable_results,
+)
 
 TABLE = "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS"
+RATE_SCOPE_LABEL = "online store, DTC"
+
+
+def run_return_rates(days: int, product_filter: str | None = None) -> RatesReport:
+    """Rates for the mature ``L{days}`` delivery cohort, or why they are unavailable."""
+    blockers = list(dict.fromkeys(source_blockers().values()))
+    maturity = cohorts.MATURITY_DAYS
+    if maturity is None:
+        blockers.append("cohort maturity rule not yet confirmed from `SHOPIFY_AGG_POST_PURCHASE`")
+    relation = metrics.COHORT_UNITS_RELATION
+    if relation is None:
+        blockers.append("the Redo-to-Shopify join is not built until the Redo table is profiled")
+    if product_filter:
+        blockers.append("product-level rates need SKUs resolved from the catalog")
+
+    window = cohorts.mature_window(days, maturity, cohorts.today_et()) if maturity else None
+    if blockers or window is None or relation is None:
+        return RatesReport(
+            results=unavailable_results("; ".join(blockers)),
+            window=window,
+            scope_label=RATE_SCOPE_LABEL,
+            blockers=tuple(blockers),
+        )
+
+    sql, params = rollup_query(relation, CohortScope(window=window))
+    rows = execute_query_dict(sql, params)
+    counts = UnitCounts.from_row(rows[0]) if rows else UnitCounts()
+    results = evaluate_rates(counts, mature=window.mature, reconciled=False)
+    return RatesReport(results=results, window=window, scope_label=RATE_SCOPE_LABEL)
 
 
 def run_returns(days: int, product_filter: str | None = None) -> dict:
@@ -195,4 +235,5 @@ def run_returns(days: int, product_filter: str | None = None) -> dict:
         "volume_change_pct": volume_change_pct,
         "qty_change_pct": qty_change_pct,
         "product_filter": product_filter,
+        "rates": run_return_rates(days, product_filter),
     }

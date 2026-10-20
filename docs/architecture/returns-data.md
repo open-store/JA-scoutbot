@@ -45,11 +45,40 @@ All rates are unit-weighted ratios of summed counts, times 100, computed once. A
 
 | Metric | Numerator | Denominator | Date basis | Status |
 |---|---|---|---|---|
-| Item return rate | Redo returned units that qualify (definition pending the Redo status values) | Eligible delivered Shopify units, same scope | Delivery cohort | Unavailable: Redo schema and order-line delivery columns unverified |
+| Item return rate | Redo returned units that qualify. The definition is pending the Redo status values | Eligible delivered Shopify units, same scope | Delivery cohort | Unavailable: Redo schema and order-line delivery columns unverified |
 | Item exchange rate | Redo exchanged units | Same eligible delivered units | Delivery cohort | Unavailable: same |
 | Exchange share of returned units | Redo exchanged units | Redo returned units, same population | Delivery cohort | Unavailable: Redo schema unverified |
 | Item refund rate | Redo refunded units | Eligible delivered units | Delivery cohort | Unavailable: same |
 | Refund volume and mix | Export lines and units | Share of export lines, not a rate | Refund date (ET) | Live |
+
+## Metric contract
+
+`scout/returns/metrics.py` (version `returns-metrics/1`) defines each rate as warehouse SQL over a cohort-units relation:
+
+```sql
+100 * SUM(redo_returned_units)  / NULLIF(SUM(eligible_delivered_units), 0) AS item_return_rate
+100 * SUM(redo_exchanged_units) / NULLIF(SUM(eligible_delivered_units), 0) AS item_exchange_rate
+100 * SUM(redo_exchanged_units) / NULLIF(SUM(redo_returned_units), 0)      AS exchange_share_of_returned_units
+100 * SUM(redo_refunded_units)  / NULLIF(SUM(eligible_delivered_units), 0) AS item_refund_rate
+```
+
+The relation has one row per delivery cohort date, channel group, channel, maturity flag, customer status, and SKU. Its measures are `eligible_delivered_units`, `redo_returned_units`, `redo_exchanged_units`, `redo_refunded_units`, `redo_store_credit_units`, and `redo_open_units`. Redo measures count only returns within the observation horizon of delivery.
+
+`rollup_query` builds the SQL with bound parameters for any cohort window, channel, and SKU list. Rocky can run the same SQL against the same relation, so the dashboard never needs its own returns calculation. The relation does not exist yet. Its SQL joins Redo items to Shopify order lines, and it is written only after `ANALYTICS.RETURN_REDO` is profiled. A shared warehouse view needs sign-off before anyone creates it.
+
+Each rate carries a status:
+
+| Status | When |
+|---|---|
+| Unavailable | A source isn't verified, the maturity rule is unknown, a count is missing, the denominator is zero, or the numerator exceeds the denominator. No percentage is shown |
+| Provisional | Counts exist, but the cohort is still open or the numbers haven't been reconciled against live data |
+| Validated | Mature and reconciled. `/returns` never sets this: it always passes `reconciled=False` |
+
+Outcomes are not assumed to add up. Returned units minus refunded, exchanged, store-credit, and open units are shown as "other or unexplained". A negative remainder marks the outcome definitions as inconsistent.
+
+Cohort windows live in `scout/returns/cohorts.py`. A mature L*N* window covers the N delivery days ending `MATURITY_DAYS` before today in America/New_York. Two windows are comparable only if both are mature and share the same length, horizon, and timezone. `MATURITY_DAYS` is `None` until the enrichment model's maturity rule is read.
+
+## Reporting scope
 
 Official cohort reporting scope is `SALES_CHANNEL_GROUP = 'dtc' AND SALES_CHANNEL = 'online_store' AND IS_COHORT_MATURE = TRUE`. Both the numerator and the denominator get channel and maturity from order-level linkage, not from a SKU join to the aggregate table.
 

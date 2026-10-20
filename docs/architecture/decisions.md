@@ -32,7 +32,9 @@ The error rate is error conversations divided by all conversations in the window
 
 A row can have more than one flag. Cancellation wins, then exchange, then straight return, so the three counts do not overlap. `IS_REDO_RETURN` is a count of Redo-processed rows inside this table, not a rate against all orders. Top products and top refund notes come from the same rows.
 
-The export is a Shopify refund export, not the Redo returns table. Return and exchange rates use Redo units over eligible delivered Shopify units. Sources, lineage, and the metric map are in [returns data](returns-data.md).
+The export is a Shopify refund export, not the Redo returns table. Its shares are shares of refund lines, and `/returns` labels them that way.
+
+Return and exchange rates use Redo units over eligible delivered Shopify units for a delivery cohort. Exchange share of returned units uses Redo returned units as its denominator and is labelled separately from the item exchange rate. Until the sources are verified, `/returns` shows each rate as unavailable and names what it is waiting on. Sources, lineage, the metric contract, and the statuses are in [returns data](returns-data.md).
 
 ## NPS
 

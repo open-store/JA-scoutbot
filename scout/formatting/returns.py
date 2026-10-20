@@ -1,9 +1,47 @@
-"""Slack formatting."""
+"""Slack formatting for `/returns`."""
 
 from scout.formatting._common import _no_data_message
+from scout.returns.metrics import MetricStatus, RatesReport, RateResult
+
+_RATE_NOTE = (
+    "Rates are Redo units ÷ eligible delivered Shopify units; exchange share is "
+    "Redo exchanged ÷ Redo returned units."
+)
+
+
+def _format_rate(result: RateResult) -> str:
+    label = result.definition.label
+    if result.status is MetricStatus.UNAVAILABLE or result.value_pct is None:
+        return f"• *{label}:* unavailable"
+    line = (
+        f"• *{label}:* {result.value_pct:.1f}% "
+        f"({result.numerator:,} of {result.denominator:,} {result.definition.denominator_label})"
+    )
+    if result.status is MetricStatus.PROVISIONAL:
+        line += f" — _provisional: {result.reason}_"
+    return line
+
+
+def format_rates(report: RatesReport) -> list[str]:
+    lines = [f"*Return and exchange rates* (delivery cohorts, {report.scope_label})"]
+    lines += [_format_rate(r) for r in report.results]
+    if report.window is not None:
+        lines.append(f"_Cohort: {report.window.describe()}._")
+    if report.outcomes is not None:
+        o = report.outcomes
+        lines.append(
+            f"_Returned units by outcome: {o.refunded:,} refunded, {o.exchanged:,} exchanged, "
+            f"{o.store_credit:,} store credit, {o.open:,} open, {o.unexplained:,} other or unexplained._"
+        )
+    lines.append(f"_{_RATE_NOTE}_")
+    if report.blockers:
+        lines.append(f"_Not available yet: {'; '.join(report.blockers)}._")
+    lines.append("")
+    return lines
+
 
 def format_returns(data: dict) -> str:
-    """Format Returns results for Slack."""
+    """Format `/returns` for Slack."""
     total_lines = data.get("total_lines", 0)
     total_qty = data.get("total_qty_returned", 0)
     exchanges = data.get("exchanges", 0)
@@ -25,92 +63,97 @@ def format_returns(data: dict) -> str:
     period_start = data.get("period_start", "")
     period_end = data.get("period_end", "")
     volume_change = data.get("volume_change_pct")
-    qty_change = data.get("qty_change_pct")
     product_filter = data.get("product_filter")
+    rates = data.get("rates")
 
     if total_lines == 0:
         filter_note = f" (filtered by {product_filter})" if product_filter else ""
         return _no_data_message("Returns", f"{period_start} – {period_end}{filter_note}", "Snowflake")
 
-    # Headline
     filter_context = f" for *{product_filter}*" if product_filter else ""
     if volume_change is not None:
         if volume_change > 5:
-            headline = f"*:package: Return volume is up{filter_context} over the measured period.*"
+            headline = f"*:package: Refund volume is up{filter_context} over the measured period.*"
         elif volume_change < -5:
-            headline = f"*:package: Return volume is down{filter_context} over the measured period.*"
+            headline = f"*:package: Refund volume is down{filter_context} over the measured period.*"
         else:
-            headline = f"*:package: Return volume is stable{filter_context}.*"
+            headline = f"*:package: Refund volume is stable{filter_context}.*"
     else:
         headline = f"*:package: Returns summary{filter_context}.*"
 
     lines = [headline, ""]
 
-    # Metric summary
-    lines.append("*Metric summary*")
-    lines.append(f"• *Total return lines:* {total_lines:,}")
-    lines.append(f"• *Total units returned:* {total_qty:,}")
+    if isinstance(rates, RatesReport):
+        lines += format_rates(rates)
+
+    lines.append("*Refund volume* (by refund date)")
+    lines.append(f"• *Refund lines:* {total_lines:,}")
+    lines.append(f"• *Units refunded:* {total_qty:,}")
     if volume_change is not None:
-        lines.append(f"• *Volume change:* {'+' if volume_change > 0 else ''}{volume_change}% vs. prior period")
+        lines.append(f"• *Volume change:* {'+' if volume_change > 0 else ''}{volume_change}% in refund lines vs. prior period")
     if avg_days is not None:
         lines.append(f"• *Avg days to return:* {avg_days}")
-    lines.append(f"• *Timeframe:* {period_start} – {period_end}")
+    lines.append(f"• *Refund dates:* {period_start} – {period_end} (ET)")
     if product_filter:
         lines.append(f"• *Filter:* {product_filter}")
-    lines.append(f"• *Source:* Snowflake (`EXPORT_CSX__RETURNS`)")
+    lines.append(
+        "• *Source:* Shopify refund export (`EXPORT_CSX__RETURNS`): Redo and non-Redo refunds, "
+        "including cancellations; open returns are not included"
+    )
     lines.append("")
 
-    # Return type breakdown (mutually exclusive)
-    lines.append("*Return type breakdown*")
-    lines.append(f"• *Exchanges:* {exchanges:,} lines / {exchange_qty:,} units ({exchange_pct}%)")
-    lines.append(f"• *Cancellations:* {cancellations:,} lines / {cancel_qty:,} units ({cancel_pct}%)")
-    lines.append(f"• *Straight returns/refunds:* {straight_returns:,} lines / {straight_qty:,} units ({straight_pct}%)")
-    lines.append(f"• _Of all returns, {redo_returns:,} ({redo_pct}%) were processed via Redo_")
+    lines.append("*Refund mix* (share of refund lines, not a rate against orders)")
+    lines.append(f"• *Exchanges:* {exchanges:,} lines / {exchange_qty:,} units ({exchange_pct}% of lines)")
+    lines.append(f"• *Cancellations:* {cancellations:,} lines / {cancel_qty:,} units ({cancel_pct}% of lines)")
+    lines.append(f"• *Straight refunds:* {straight_returns:,} lines / {straight_qty:,} units ({straight_pct}% of lines)")
+    lines.append(f"• _Redo-flagged: {redo_returns:,} lines ({redo_pct}% of lines)_")
     lines.append("")
 
-    # Platform breakdown
     if platforms:
-        lines.append("*Return platform*")
+        lines.append("*Return platform* (refund lines)")
         for p in platforms:
             lines.append(f"• *{p['platform']}:* {p['count']:,}")
         lines.append("")
 
-    # Top returned products
     if top_products:
-        lines.append("*Top returned products*")
+        lines.append("*Most refunded products* (units)")
         for p in top_products[:5]:
             lines.append(f"• *{p['product']}:* {p['qty']} units ({p['lines']} lines)")
         lines.append("")
 
-    # Top categories
     if top_categories:
-        lines.append("*Top categories*")
+        lines.append("*Most refunded categories* (units)")
         for c in top_categories[:5]:
             lines.append(f"• *{c['category']}:* {c['qty']} units")
         lines.append("")
 
-    # Top refund notes (actionable insights)
     if top_notes:
-        lines.append("*Notable refund reasons* (excluding generic)")
+        lines.append("*Internal refund notes* (Shopify `REFUND_NOTE`, generic notes excluded; not customer reasons)")
         for n in top_notes[:5]:
             lines.append(f"• [{n['count']}] _{n['note'][:100]}_")
         lines.append("")
 
-    # Recommended action
     lines.append("*Recommended action*")
     if top_products:
         top_prod = top_products[0]["product"]
-        lines.append(f"• *Product/Ops:* Investigate `{top_prod}` — the most returned product this period.")
+        lines.append(
+            f"• *Product/Ops:* `{top_prod}` has the most refunded units. Volume follows sales, "
+            "so check its item return rate before acting."
+        )
     if cancel_pct > 15:
-        lines.append(f"• *Ops:* Cancellation rate is {cancel_pct}% — review fulfillment speed and pre-ship communication.")
+        lines.append(
+            f"• *Ops:* Cancellations are {cancel_pct}% of refund lines — review fulfillment speed "
+            "and pre-ship communication."
+        )
     if not top_products and cancel_pct <= 15:
-        lines.append("• Return volume is within normal range. Continue monitoring.")
+        lines.append("• Refund volume is within normal range. Continue monitoring.")
 
-    # Caveat
     lines.append("")
     lines.append("*Caveat*")
-    lines.append("• True line-item return rate requires joining with `OS_ALL_ORDERS`. This report shows return volume and mix from the returns table only.")
-    lines.append("• Return comments and primary/secondary reasons from Redo API are not yet integrated.")
+    lines.append(
+        "• Refund volume and mix come from Shopify refunds, not Redo. Open returns are missing, "
+        "and exchanges that created no refund may be too."
+    )
+    lines.append("• Redo return reasons and customer comments are not shown yet.")
 
     return "\n".join(lines)
-

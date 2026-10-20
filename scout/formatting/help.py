@@ -19,7 +19,7 @@ def format_help() -> str:
         "• `/pps_new L30` — New Customer PPS: recommend score and open-text themes",
         "• `/attribution L30` — New customer attribution: how they found us, what brought them",
         "• `/daily` — Yesterday's CS KPI report: tickets closed, FRT, RT, CSAT by agent",
-        "• `/returns L30` — Return volume, top products, and type breakdown",
+        "• `/returns L30` — Refund volume and mix, top refunded products; return and exchange rates are not available yet",
         "• `/reviews L30` — Product review analysis (Okendo)",
         "• `/scout-help` — This message",
         "",
