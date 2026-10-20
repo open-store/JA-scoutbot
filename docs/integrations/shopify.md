@@ -11,6 +11,8 @@ Scout has no Shopify API client and no Shopify credential. Order data comes from
 
 Scout's Snowflake role has not been checked for SELECT on `JA_ANALYTICS`. Delivery-date and unit columns have not been read. `python -m scout.returns.discovery` lists both.
 
+Product `/voc` attribution reads the same two tables through `scout/services/order_lookup.py` when `SCOUT_ORDER_LOOKUP=snowflake`. See [product VOC](../architecture/product-voc.md).
+
 ## Why not the Admin API
 
 - No credential exists in `.env.example`, [configuration](../operations/configuration.md), or code, so the granted scopes cannot be checked. Full history needs `read_all_orders`.
