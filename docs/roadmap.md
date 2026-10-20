@@ -22,8 +22,8 @@ A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`
 
 `/returns` reports volume, the cancellation / exchange / straight-return mix, top products, and top refund notes. It does not report a true return rate.
 
-- Redo primary reason, secondary reason, and customer comments are not ingested. `REDO_API_KEY` is unused. Leave the API behind a feature flag until credentials exist. See [Redo](integrations/redo.md).
-- True line-item return rate needs a join from `EXPORT_CSX__RETURNS` to all orders (`OS_ALL_ORDERS`).
+- Profile `ANALYTICS.RETURN_REDO` with `python -m scout.returns.discovery`. Redo is the authority for returns, outcomes, reasons, and comments. See [returns data](architecture/returns-data.md).
+- Return and exchange rates need Redo units over eligible delivered units from `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, joined on Shopify order and line IDs. Both relations are named, not yet verified for Scout's role.
 
 ### Natural-language quality
 

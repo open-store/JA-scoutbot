@@ -62,6 +62,7 @@ The process is `python scout_bot.py` with the repo root on `sys.path` (the image
 | `scout/integrations/mcp.py` | Interface only, for a future MCP client |
 | `scout/taxonomy/tag_ids.py` | `TAG_ID_TO_NAME` and `TAG_NAME_TO_UUIDS` |
 | `queries/` | Command queries. `queries/returns.py` is its own module |
+| `scout/returns/` | Returns source registry, read-only discovery (`python -m scout.returns.discovery`), and metric definitions |
 | `scout/taxonomy/` | Tag groups and product aliases |
 | `scout/models/` | Product-feedback dataclasses |
 | `scout/repositories/product_feedback_repository.py` | Product-feedback SQL |

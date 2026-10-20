@@ -32,7 +32,7 @@ The error rate is error conversations divided by all conversations in the window
 
 A row can have more than one flag. Cancellation wins, then exchange, then straight return, so the three counts do not overlap. `IS_REDO_RETURN` is a count of Redo-processed rows inside this table, not a rate against all orders. Top products and top refund notes come from the same rows.
 
-A true line-item return rate would be `qty_returned / gross_quantity` after joining to all orders (`OS_ALL_ORDERS`). That join is not built. See [roadmap](../roadmap.md) and [Redo](../integrations/redo.md).
+The export is a Shopify refund export, not the Redo returns table. Return and exchange rates use Redo units over eligible delivered Shopify units. Sources, lineage, and the metric map are in [returns data](returns-data.md).
 
 ## NPS
 

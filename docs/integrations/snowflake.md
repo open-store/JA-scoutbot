@@ -28,7 +28,8 @@ Most queries ignore the session default and use a fully qualified name.
 |---|---|
 | `/csat`, `/voc`, `/errors` | `FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS` |
 | Product feedback messages | `CONVERSATIONS` and `MESSAGES` in the session schema (unqualified) |
-| `/returns` | `ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS` |
+| `/returns` | `ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS` (Shopify refund export) |
+| Return and exchange rates (not live) | `ANALYTICS.RETURN_REDO`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`, `JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE`. Named, not yet verified for Scout's role. See [returns data](../architecture/returns-data.md) |
 | `/nps`, `/pps`, `/pps_new`, `/attribution` | `ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_` tables `SURVEY`, `RESPONSE`, `RESPONSE_ANSWER` |
 | Product catalog for product questions | `JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE`, distinct styles only, one bounded query cached for six hours. Read access from Scout's role is not yet confirmed; without it Scout falls back to its alias list |
 
