@@ -14,8 +14,9 @@ Responsibilities:
   - Call get_product_feedback_for_scope() for message synthesis
   - Return a merged result dict ready for formatting
 
-General (non-product) VOC queries bypass this coordinator entirely and
-call run_voc() directly, preserving existing behaviour.
+General (non-product) VOC queries call run_voc() directly for ticket
+metrics, then attach the multi-source customer-health report from
+scout/services/health_service.py.
 
 Architecture contract:
   - voc.py does NOT import or call product_feedback_service
@@ -36,6 +37,7 @@ from scout.models.product_feedback import (
     ProductFeedbackScope,
 )
 from scout.services.attribution_service import summarise
+from scout.services.health_service import build_health_report
 from scout.services.order_lookup import OrderLookup, get_order_lookup
 from scout.services.product_catalog_service import get_catalog
 from scout.services.product_feedback_service import (
@@ -228,11 +230,13 @@ def _unresolved_result(cmd: ParsedCommand, resolution: ProductResolution) -> dic
 def run_voc_query(cmd: ParsedCommand) -> dict:
     """Entry point for all VOC queries.
 
-    Routes to run_product_voc() when a product filter is present,
-    otherwise calls run_voc() directly (general VOC, unchanged behaviour).
+    Routes to run_product_voc() when a product filter is present. Otherwise
+    runs the ticket metrics with run_voc() and attaches the customer-health
+    report under ``health``.
     """
     product = cmd.filters.get("product") if cmd.filters else None
     if product:
         return run_product_voc(cmd)
-    else:
-        return run_voc(cmd)
+    data = run_voc(cmd)
+    data["health"] = build_health_report(cmd, voc_data=data)
+    return data

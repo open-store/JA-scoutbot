@@ -9,6 +9,29 @@ from datetime import datetime, timedelta
 
 from scout.integrations.okendo import fetch_current_reviews, fetch_prior_reviews
 
+# ``fetch_current_reviews`` stops after 20 pages of 100.
+CURRENT_FETCH_CAP = 2000
+
+EVIDENCE_PER_SIDE = 30
+
+
+def review_evidence(reviews: list[dict], per_side: int = EVIDENCE_PER_SIDE) -> list[dict]:
+    """Most recent low-rated (1–3★) and high-rated (4–5★) reviews with text, for cited synthesis."""
+    def item(r: dict) -> dict:
+        text = " ".join(p for p in ((r.get("title") or "").strip(), (r.get("body") or "").strip()) if p)
+        return {
+            "review_id": str(r.get("reviewId") or ""),
+            "rating": r.get("rating"),
+            "product": r.get("productName") or "",
+            "text": text,
+            "created_at": r.get("dateCreated"),
+        }
+
+    with_text = [r for r in reviews if (r.get("body") or r.get("title")) and r.get("rating")]
+    low = [item(r) for r in with_text if r["rating"] <= 3][:per_side]
+    high = [item(r) for r in with_text if r["rating"] >= 4][:per_side]
+    return low + high
+
 
 def run_reviews(days: int, product_filter: str | None = None) -> dict:
     """Analyze reviews for the given time window.
@@ -18,6 +41,7 @@ def run_reviews(days: int, product_filter: str | None = None) -> dict:
     sample_negative, period_start, period_end, prior_avg_rating, change.
     """
     reviews = fetch_current_reviews(days)
+    fetch_capped = len(reviews) >= CURRENT_FETCH_CAP
 
     # Apply product filter if specified
     if product_filter:
@@ -30,6 +54,8 @@ def run_reviews(days: int, product_filter: str | None = None) -> dict:
         ]
 
     result = _analyze_reviews(reviews, days)
+    result["evidence"] = review_evidence(reviews)
+    result["fetch_capped"] = fetch_capped
 
     # Prior period comparison
     prior_reviews = fetch_prior_reviews(days)

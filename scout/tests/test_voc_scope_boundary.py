@@ -280,13 +280,11 @@ def test_voc_service_routes_general_query_to_run_voc():
         is_valid=True,
     )
 
-    with patch("scout.services.voc_service.run_voc") as mock_run_voc:
+    with patch("scout.services.voc_service.run_voc") as mock_run_voc, \
+         patch("scout.services.voc_service.build_health_report", return_value={}) as mock_health:
         mock_run_voc.return_value = {"volume": {}, "product_feedback": None}
         from scout.services.voc_service import run_voc_query
-        # Need to reload to get fresh mock
-        import importlib
-        import scout.services.voc_service as svc_module
-        importlib.reload(svc_module)
-        svc_module.run_voc = mock_run_voc
-        svc_module.run_voc_query(cmd)
+        result = run_voc_query(cmd)
         mock_run_voc.assert_called_once_with(cmd)
+        mock_health.assert_called_once()
+        assert "health" in result

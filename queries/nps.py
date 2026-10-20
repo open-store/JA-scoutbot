@@ -204,9 +204,68 @@ def get_nps_trend(days: int = 30) -> dict:
         current_nps = data.get("nps")
         prior_nps = prior.get(display)
         delta = round(current_nps - prior_nps, 1) if (current_nps is not None and prior_nps is not None) else None
-        trend[display] = {"current_nps": current_nps, "prior_nps": prior_nps, "delta": delta}
+        trend[display] = {
+            "current_nps": current_nps,
+            "prior_nps": prior_nps,
+            "delta": delta,
+            "prior_total": prior_merged.get(display, {}).get("total", 0),
+            "prior_start": start_str,
+            "prior_end": end_str,
+        }
 
     return trend
+
+
+def get_open_text_evidence(days: int = 30, survey_name: str = "NPS Survey", limit: int = 60) -> list:
+    """Open-text answers with their response ID and recommend score, for cited synthesis.
+
+    Same survey, window, and text filters as ``get_open_text_responses``,
+    across all scores. Returns ``[{response_id, score, comment, created_at}]``.
+    """
+    start_date, end_date = _date_range(days)
+    if survey_name == "NPS Survey":
+        survey_ids = [SURVEY_IDS["NPS Survey"], SURVEY_IDS["NPS Survey Copy"]]
+    else:
+        sid = SURVEY_IDS.get(survey_name)
+        survey_ids = [sid] if sid else []
+    if not survey_ids:
+        return []
+    id_placeholders = ", ".join(f"'{sid}'" for sid in survey_ids)
+
+    query = f"""
+        SELECT
+            r.ID AS response_id,
+            TRY_TO_NUMBER(TRIM(CAST(nps_ans."VALUE" AS VARCHAR), '"')) AS score,
+            TRIM(CAST(text_ans."VALUE" AS VARCHAR), '"') AS comment,
+            r.CREATED_AT
+        FROM {fqn('RESPONSE_ANSWER')} text_ans
+        JOIN {fqn('RESPONSE')} r ON text_ans.RESPONSE_ID = r.ID
+        LEFT JOIN {fqn('RESPONSE_ANSWER')} nps_ans ON nps_ans.RESPONSE_ID = r.ID
+            AND nps_ans.TYPE = 'NPS'
+            AND nps_ans.LABEL ILIKE '%recommend%'
+        WHERE text_ans.TYPE IN ('Text', 'TextArea')
+          AND r.SURVEY_ID IN ({id_placeholders})
+          AND r.CREATED_AT >= '{start_date}'
+          AND r.CREATED_AT < '{end_date}'
+          AND text_ans."VALUE" IS NOT NULL
+          AND LENGTH(TRIM(CAST(text_ans."VALUE" AS VARCHAR), '"')) > 10
+          AND text_ans._FIVETRAN_DELETED = FALSE
+        ORDER BY r.CREATED_AT DESC
+        LIMIT {int(limit)}
+    """
+    conn = get_connection()
+    try:
+        cur = conn.cursor()
+        cur.execute(query)
+        rows = cur.fetchall()
+        cur.close()
+    finally:
+        conn.close()
+    return [
+        {"response_id": str(rid), "score": score, "comment": comment, "created_at": created}
+        for rid, score, comment, created in rows
+        if comment and str(comment).strip()
+    ]
 
 
 def get_open_text_responses(days: int = 30, survey_name: str = "NPS Survey",

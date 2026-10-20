@@ -3,6 +3,7 @@
 from typing import Optional
 
 from scout.formatting._common import _no_data_message
+from scout.formatting.voc_health import format_health_voc
 
 _RETRIEVAL_LABELS = {
     "strict": "product named in the ticket, with a product-feedback tag",
@@ -150,6 +151,8 @@ def format_voc(data: dict) -> str:
     product_feedback = data.get("product_feedback")
     if product_feedback and product_feedback.get("status") in ("ambiguous", "unknown"):
         return _format_unresolved(product_feedback, data.get("days", 30))
+    if data.get("health") and not product_feedback:
+        return format_health_voc(data)
 
     volume = data.get("volume", {})
     prev_volume = data.get("prev_volume", {})
