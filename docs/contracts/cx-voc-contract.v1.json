@@ -1,0 +1,812 @@
+{
+  "contract_version": "cx-voc-contract/1",
+  "returns_metrics_version": "returns-metrics/1",
+  "health_score_version": "customer-health/0.1",
+  "value_scales": {
+    "rate_pct": {
+      "minimum": 0.0,
+      "maximum": 100.0,
+      "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+    },
+    "share_pct": {
+      "minimum": 0.0,
+      "maximum": 100.0,
+      "note": "Percent share of the stated population, 0 to 100."
+    },
+    "nps": {
+      "minimum": -100.0,
+      "maximum": 100.0,
+      "note": "% promoters minus % detractors."
+    },
+    "stars": {
+      "minimum": 1.0,
+      "maximum": 5.0,
+      "note": "Mean star rating."
+    },
+    "score_0_100": {
+      "minimum": 0.0,
+      "maximum": 100.0,
+      "note": "Weighted composite of normalized components; versioned and provisional."
+    },
+    "count": {
+      "minimum": 0.0,
+      "maximum": null,
+      "note": "Whole count."
+    },
+    "distribution": {
+      "minimum": null,
+      "maximum": null,
+      "note": "No single value; see evidence for the rows."
+    },
+    "themes": {
+      "minimum": null,
+      "maximum": null,
+      "note": "No single value; see evidence for themes and counts."
+    },
+    "ranking": {
+      "minimum": null,
+      "maximum": null,
+      "note": "No single value; see evidence for the ranked products."
+    }
+  },
+  "availability_values": [
+    "available",
+    "provisional",
+    "low_sample",
+    "stale",
+    "unavailable"
+  ],
+  "validation_values": [
+    "validated",
+    "not_validated"
+  ],
+  "validation_rule": "validated only with a ValidationRecord of a live reconciliation; none exist",
+  "cohort_units_columns": {
+    "dimensions": {
+      "delivery_cohort_date": "Delivery date of the Shopify order line, America/New_York",
+      "sales_channel_group": "Channel group of the order, e.g. dtc",
+      "sales_channel": "Sales channel of the order, e.g. online_store",
+      "is_cohort_mature": "True when the cohort's observation horizon has passed",
+      "customer_trx_status": "Customer status at the order, e.g. new or returning",
+      "sku": "SKU of the delivered line"
+    },
+    "measures": {
+      "eligible_delivered_units": "Shopify units on eligible delivered lines; replacement and exchange orders excluded",
+      "redo_returned_units": "Redo units on qualifying returns of those lines",
+      "redo_exchanged_units": "Redo returned units settled as an exchange",
+      "redo_refunded_units": "Redo returned units settled as a refund",
+      "redo_store_credit_units": "Redo returned units settled as store credit",
+      "redo_open_units": "Redo returned units not yet settled"
+    }
+  },
+  "metrics": [
+    {
+      "metric_id": "returns.item_return_rate",
+      "label": "Item return rate",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Redo units on qualifying returns of those lines",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": "SUM(redo_returned_units)"
+      },
+      "denominator": {
+        "description": "Shopify units on eligible delivered lines; replacement and exchange orders excluded",
+        "source": "JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES joined to JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS",
+        "source_status": "named_unverified",
+        "expression": "SUM(eligible_delivered_units)"
+      },
+      "sql": "100 * SUM(redo_returned_units) / NULLIF(SUM(eligible_delivered_units), 0)",
+      "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "filters": [
+        "delivery_cohort_date",
+        "sales_channel_group",
+        "sales_channel",
+        "is_cohort_mature",
+        "customer_trx_status",
+        "sku"
+      ],
+      "filter_note": "Default scope sales_channel = online_store within sales_channel_group = dtc. Season, lifecycle, and family come from enrichment by SKU.",
+      "enrichment": "Product context from JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE by SKU, only where a SKU maps to one value; coverage reported as matched, ambiguous, and unmatched units, and unmatched units stay in every total. Not built yet.",
+      "freshness": "Latest LAST_ALTERED of the Redo and order-line relations; wired once they are verified.",
+      "evidence": "Redo reasons and comment themes for the same population (returns.reason_share, returns.comment_themes).",
+      "producer": "queries.returns.run_return_rates via scout.returns.metrics.rollup_query",
+      "in_health_score": true,
+      "health_weight": 0.25,
+      "blockers": [
+        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
+        "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
+        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+      ],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.item_exchange_rate",
+      "label": "Item exchange rate",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Redo returned units settled as an exchange",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": "SUM(redo_exchanged_units)"
+      },
+      "denominator": {
+        "description": "Shopify units on eligible delivered lines; replacement and exchange orders excluded",
+        "source": "JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES joined to JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS",
+        "source_status": "named_unverified",
+        "expression": "SUM(eligible_delivered_units)"
+      },
+      "sql": "100 * SUM(redo_exchanged_units) / NULLIF(SUM(eligible_delivered_units), 0)",
+      "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "filters": [
+        "delivery_cohort_date",
+        "sales_channel_group",
+        "sales_channel",
+        "is_cohort_mature",
+        "customer_trx_status",
+        "sku"
+      ],
+      "filter_note": "Default scope sales_channel = online_store within sales_channel_group = dtc. Season, lifecycle, and family come from enrichment by SKU.",
+      "enrichment": "Product context from JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE by SKU, only where a SKU maps to one value; coverage reported as matched, ambiguous, and unmatched units, and unmatched units stay in every total. Not built yet.",
+      "freshness": "Latest LAST_ALTERED of the Redo and order-line relations; wired once they are verified.",
+      "evidence": "Redo reasons and comment themes for the same population (returns.reason_share, returns.comment_themes).",
+      "producer": "queries.returns.run_return_rates via scout.returns.metrics.rollup_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
+        "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
+        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+      ],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.exchange_share_of_returned_units",
+      "label": "Exchange share of returned units",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Redo returned units settled as an exchange",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": "SUM(redo_exchanged_units)"
+      },
+      "denominator": {
+        "description": "Redo units on qualifying returns of those lines",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": "SUM(redo_returned_units)"
+      },
+      "sql": "100 * SUM(redo_exchanged_units) / NULLIF(SUM(redo_returned_units), 0)",
+      "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "filters": [
+        "delivery_cohort_date",
+        "sales_channel_group",
+        "sales_channel",
+        "is_cohort_mature",
+        "customer_trx_status",
+        "sku"
+      ],
+      "filter_note": "Default scope sales_channel = online_store within sales_channel_group = dtc. Season, lifecycle, and family come from enrichment by SKU.",
+      "enrichment": "Product context from JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE by SKU, only where a SKU maps to one value; coverage reported as matched, ambiguous, and unmatched units, and unmatched units stay in every total. Not built yet.",
+      "freshness": "Latest LAST_ALTERED of the Redo and order-line relations; wired once they are verified.",
+      "evidence": "Redo reasons and comment themes for the same population (returns.reason_share, returns.comment_themes).",
+      "producer": "queries.returns.run_return_rates via scout.returns.metrics.rollup_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
+        "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
+        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+      ],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.item_refund_rate",
+      "label": "Item refund rate",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Redo returned units settled as a refund",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": "SUM(redo_refunded_units)"
+      },
+      "denominator": {
+        "description": "Shopify units on eligible delivered lines; replacement and exchange orders excluded",
+        "source": "JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES joined to JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS",
+        "source_status": "named_unverified",
+        "expression": "SUM(eligible_delivered_units)"
+      },
+      "sql": "100 * SUM(redo_refunded_units) / NULLIF(SUM(eligible_delivered_units), 0)",
+      "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "filters": [
+        "delivery_cohort_date",
+        "sales_channel_group",
+        "sales_channel",
+        "is_cohort_mature",
+        "customer_trx_status",
+        "sku"
+      ],
+      "filter_note": "Default scope sales_channel = online_store within sales_channel_group = dtc. Season, lifecycle, and family come from enrichment by SKU.",
+      "enrichment": "Product context from JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE by SKU, only where a SKU maps to one value; coverage reported as matched, ambiguous, and unmatched units, and unmatched units stay in every total. Not built yet.",
+      "freshness": "Latest LAST_ALTERED of the Redo and order-line relations; wired once they are verified.",
+      "evidence": "Redo reasons and comment themes for the same population (returns.reason_share, returns.comment_themes).",
+      "producer": "queries.returns.run_return_rates via scout.returns.metrics.rollup_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
+        "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
+        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+      ],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.refund_lines",
+      "label": "Refund lines (Shopify refund export)",
+      "family": "returns",
+      "value_kind": "count",
+      "numerator": {
+        "description": "Refund-export lines in the window",
+        "source": "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS",
+        "source_status": "verified",
+        "expression": "COUNT(*)"
+      },
+      "denominator": null,
+      "sql": "COUNT(*)",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "maturity": "Not cohort-based; refunds processed in the window.",
+      "filters": [
+        "product_title_contains"
+      ],
+      "filter_note": "product: matches PRODUCT_TITLE as a substring.",
+      "enrichment": "None.",
+      "freshness": "Not read; LAST_ALTERED of the export is not queried.",
+      "evidence": "Top refunded products and categories; internal REFUND_NOTE text, which is not a customer reason.",
+      "producer": "queries.returns.run_returns",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": null,
+        "note": "Whole count."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.refund_line_share_exchange",
+      "label": "Exchange share of refund lines",
+      "family": "returns",
+      "value_kind": "share_pct",
+      "numerator": {
+        "description": "Refund lines where NOT IS_CANCELLATION AND IS_EXCHANGE",
+        "source": "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS",
+        "source_status": "verified",
+        "expression": "SUM(CASE WHEN NOT IS_CANCELLATION AND IS_EXCHANGE THEN 1 ELSE 0 END)"
+      },
+      "denominator": {
+        "description": "Refund-export lines in the window",
+        "source": "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS",
+        "source_status": "verified",
+        "expression": "COUNT(*)"
+      },
+      "sql": "100 * SUM(CASE WHEN NOT IS_CANCELLATION AND IS_EXCHANGE THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "maturity": "Not cohort-based; refunds processed in the window.",
+      "filters": [
+        "product_title_contains"
+      ],
+      "filter_note": "product: matches PRODUCT_TITLE as a substring.",
+      "enrichment": "None.",
+      "freshness": "Not read; LAST_ALTERED of the export is not queried.",
+      "evidence": "Top refunded products and categories; internal REFUND_NOTE text, which is not a customer reason.",
+      "producer": "queries.returns.run_returns",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent share of the stated population, 0 to 100."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.refund_line_share_cancellation",
+      "label": "Cancellation share of refund lines",
+      "family": "returns",
+      "value_kind": "share_pct",
+      "numerator": {
+        "description": "Refund lines where IS_CANCELLATION",
+        "source": "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS",
+        "source_status": "verified",
+        "expression": "SUM(CASE WHEN IS_CANCELLATION THEN 1 ELSE 0 END)"
+      },
+      "denominator": {
+        "description": "Refund-export lines in the window",
+        "source": "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS",
+        "source_status": "verified",
+        "expression": "COUNT(*)"
+      },
+      "sql": "100 * SUM(CASE WHEN IS_CANCELLATION THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "maturity": "Not cohort-based; refunds processed in the window.",
+      "filters": [
+        "product_title_contains"
+      ],
+      "filter_note": "product: matches PRODUCT_TITLE as a substring.",
+      "enrichment": "None.",
+      "freshness": "Not read; LAST_ALTERED of the export is not queried.",
+      "evidence": "Top refunded products and categories; internal REFUND_NOTE text, which is not a customer reason.",
+      "producer": "queries.returns.run_returns",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent share of the stated population, 0 to 100."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.refund_line_share_straight",
+      "label": "Straight-refund share of refund lines",
+      "family": "returns",
+      "value_kind": "share_pct",
+      "numerator": {
+        "description": "Refund lines where NOT IS_CANCELLATION AND NOT IS_EXCHANGE",
+        "source": "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS",
+        "source_status": "verified",
+        "expression": "SUM(CASE WHEN NOT IS_CANCELLATION AND NOT IS_EXCHANGE THEN 1 ELSE 0 END)"
+      },
+      "denominator": {
+        "description": "Refund-export lines in the window",
+        "source": "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS",
+        "source_status": "verified",
+        "expression": "COUNT(*)"
+      },
+      "sql": "100 * SUM(CASE WHEN NOT IS_CANCELLATION AND NOT IS_EXCHANGE THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "maturity": "Not cohort-based; refunds processed in the window.",
+      "filters": [
+        "product_title_contains"
+      ],
+      "filter_note": "product: matches PRODUCT_TITLE as a substring.",
+      "enrichment": "None.",
+      "freshness": "Not read; LAST_ALTERED of the export is not queried.",
+      "evidence": "Top refunded products and categories; internal REFUND_NOTE text, which is not a customer reason.",
+      "producer": "queries.returns.run_returns",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent share of the stated population, 0 to 100."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.reason_share",
+      "label": "Return reasons (share of returned units)",
+      "family": "returns",
+      "value_kind": "distribution",
+      "numerator": {
+        "description": "Redo returned units with this primary reason",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": null
+      },
+      "denominator": {
+        "description": "All Redo returned units in the population, including no reason",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": null
+      },
+      "sql": null,
+      "date_basis": "Redo returns requested in the window (requested_at, unverified)",
+      "maturity": "Not cohort-based.",
+      "filters": [
+        "product",
+        "sku"
+      ],
+      "filter_note": "Product scope resolves through the catalog.",
+      "enrichment": "Product context by SKU, as for the rates.",
+      "freshness": "Same as the Redo source.",
+      "evidence": "Reason rows (units, distinct returns, share, secondary reasons) and coverage: units with a reason, a comment, or neither, and duplicate item rows dropped.",
+      "producer": "scout.returns.reasons.summarize_reasons",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "Redo reason and comment fields unverified (scout/returns/redo_fields.py)"
+      ],
+      "scale": {
+        "minimum": null,
+        "maximum": null,
+        "note": "No single value; see evidence for the rows."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.comment_themes",
+      "label": "What customers say in return comments",
+      "family": "returns",
+      "value_kind": "themes",
+      "numerator": null,
+      "denominator": null,
+      "sql": null,
+      "date_basis": "Redo returns requested in the window (requested_at, unverified)",
+      "maturity": "Not cohort-based.",
+      "filters": [
+        "product",
+        "sku"
+      ],
+      "filter_note": "Product scope resolves through the catalog.",
+      "enrichment": "Affected products from each cited item.",
+      "freshness": "Same as the Redo source.",
+      "evidence": "Per theme: meaning, distinct returns and comments computed from citations, affected products, a verbatim quote with personal details scrubbed, and cited item IDs. Analysed and in-scope comment counts; sample-based when capped.",
+      "producer": "scout.returns.comments.synthesize_return_comments",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "Redo reason and comment fields unverified (scout/returns/redo_fields.py)"
+      ],
+      "scale": {
+        "minimum": null,
+        "maximum": null,
+        "note": "No single value; see evidence for themes and counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.products_to_watch",
+      "label": "Products to watch (monitoring view)",
+      "family": "returns",
+      "value_kind": "ranking",
+      "numerator": {
+        "description": "Product returned units minus overall rate × product delivered units",
+        "source": "ANALYTICS.RETURN_REDO",
+        "source_status": "named_unverified",
+        "expression": "redo_returned_units - overall_pct / 100 * eligible_delivered_units"
+      },
+      "denominator": null,
+      "sql": null,
+      "date_basis": "Same delivery cohorts as returns.item_return_rate",
+      "maturity": "Same as returns.item_return_rate.",
+      "filters": [
+        "season",
+        "lifecycle",
+        "sku"
+      ],
+      "filter_note": "Known seasons other than Prior. Jetsetter Tech Pants excluded by catalog style (scout.returns.recommendations.RECOMMENDATION_EXCLUSIONS). Overall rates include every product.",
+      "enrichment": "Season and lifecycle from enrichment; catalog resolution for exclusions.",
+      "freshness": "Same as returns.item_return_rate.",
+      "evidence": "Needs attention, below overall, and low sample (under 100 delivered units) lists; not-ranked, out-of-focus, and excluded products with reasons.",
+      "producer": "scout.returns.recommendations.build_monitoring_view",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "needs available item return rates by product",
+        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
+        "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
+        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+      ],
+      "scale": {
+        "minimum": null,
+        "maximum": null,
+        "note": "No single value; see evidence for the ranked products."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.support_csat",
+      "label": "Support CSAT",
+      "family": "customer_health",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Tickets rated 4 or 5",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "SATISFACTION_RATING IN ('4','5')"
+      },
+      "denominator": {
+        "description": "Tickets with a 1–5 rating",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "SATISFACTION_RATING IS NOT NULL"
+      },
+      "sql": null,
+      "date_basis": "Ticket CREATED_AT, complete days in America/New_York",
+      "maturity": "Not cohort-based.",
+      "filters": [],
+      "filter_note": "All channels; /voc filters are not applied to CSAT. Not the /daily Richpanel API score.",
+      "enrichment": "None.",
+      "freshness": "Latest _FIVETRAN_SYNCED on the source table; stale after 48 hours or no sync in 30 days.",
+      "evidence": "Rated and total tickets, response rate, previous window of the same length.",
+      "producer": "queries.csat.run_csat via scout.health.sources.support_csat_entry",
+      "in_health_score": true,
+      "health_weight": 0.25,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.nps_survey",
+      "label": "NPS — NPS Survey",
+      "family": "customer_health",
+      "value_kind": "nps",
+      "numerator": {
+        "description": "Promoters (9–10) minus detractors (0–6)",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "denominator": {
+        "description": "Responses to the recommend question, NPS Survey and NPS Survey Copy merged",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "sql": null,
+      "date_basis": "RESPONSE.CREATED_AT, UTC dates, end excluded",
+      "maturity": "Not cohort-based.",
+      "filters": [],
+      "filter_note": "All customers; product and channel filters do not apply.",
+      "enrichment": "None.",
+      "freshness": "Latest _FIVETRAN_SYNCED on the source table; stale after 48 hours or no sync in 30 days.",
+      "evidence": "Promoter, passive, and detractor shares; previous window.",
+      "producer": "queries.nps.get_nps_scores via scout.health.sources.nps_entry",
+      "in_health_score": true,
+      "health_weight": 0.3,
+      "blockers": [],
+      "scale": {
+        "minimum": -100.0,
+        "maximum": 100.0,
+        "note": "% promoters minus % detractors."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.okendo_rating",
+      "label": "Okendo review rating",
+      "family": "customer_health",
+      "value_kind": "stars",
+      "numerator": {
+        "description": "Sum of star ratings",
+        "source": "Okendo reviews API",
+        "source_status": "live_api",
+        "expression": null
+      },
+      "denominator": {
+        "description": "Approved reviews, most recent 2,000 at most",
+        "source": "Okendo reviews API",
+        "source_status": "live_api",
+        "expression": null
+      },
+      "sql": null,
+      "date_basis": "Review date, last N days to now, UTC",
+      "maturity": "Not cohort-based.",
+      "filters": [
+        "product"
+      ],
+      "filter_note": "All products in /voc.",
+      "enrichment": "None.",
+      "freshness": "Read live from the API for each reply.",
+      "evidence": "Review count, sentiment split, previous window; review text feeds health.cross_source_themes.",
+      "producer": "queries.reviews.run_reviews via scout.health.sources.reviews_entry",
+      "in_health_score": true,
+      "health_weight": 0.2,
+      "blockers": [],
+      "scale": {
+        "minimum": 1.0,
+        "maximum": 5.0,
+        "note": "Mean star rating."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.returning_pps_nps",
+      "label": "Returning Customer PPS recommend NPS",
+      "family": "customer_health",
+      "value_kind": "nps",
+      "numerator": {
+        "description": "Promoters minus detractors within Returning Customer PPS",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "denominator": {
+        "description": "Recommend answers in Returning Customer PPS",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "sql": null,
+      "date_basis": "RESPONSE.CREATED_AT, UTC dates, end excluded",
+      "maturity": "Not cohort-based.",
+      "filters": [],
+      "filter_note": "Separate survey population; never averaged with other surveys.",
+      "enrichment": "None.",
+      "freshness": "Latest _FIVETRAN_SYNCED on the source table; stale after 48 hours or no sync in 30 days.",
+      "evidence": "Top reason for coming back, share who almost stopped, open-text themes.",
+      "producer": "queries.pps.get_returning_pps via scout.health.sources.pps_entry",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": -100.0,
+        "maximum": 100.0,
+        "note": "% promoters minus % detractors."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.new_pps_nps",
+      "label": "New Customer PPS recommend NPS",
+      "family": "customer_health",
+      "value_kind": "nps",
+      "numerator": {
+        "description": "Promoters minus detractors within New Customer PPS",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "denominator": {
+        "description": "Recommend answers in New Customer PPS",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "sql": null,
+      "date_basis": "RESPONSE.CREATED_AT, UTC dates, end excluded",
+      "maturity": "Not cohort-based.",
+      "filters": [],
+      "filter_note": "Separate survey population; never averaged with other surveys.",
+      "enrichment": "None.",
+      "freshness": "Latest _FIVETRAN_SYNCED on the source table; stale after 48 hours or no sync in 30 days.",
+      "evidence": "Open-text themes.",
+      "producer": "queries.pps.get_new_pps via scout.health.sources.pps_entry",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": -100.0,
+        "maximum": 100.0,
+        "note": "% promoters minus % detractors."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.attribution",
+      "label": "Attribution — New Customer PPS",
+      "family": "customer_health",
+      "value_kind": "distribution",
+      "numerator": {
+        "description": "Respondents per first-heard channel",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "denominator": {
+        "description": "New Customer PPS respondents who answered the question",
+        "source": "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)",
+        "source_status": "production_query",
+        "expression": null
+      },
+      "sql": null,
+      "date_basis": "RESPONSE.CREATED_AT, UTC dates, end excluded",
+      "maturity": "Not cohort-based.",
+      "filters": [],
+      "filter_note": "Same survey as New Customer PPS; acquisition context.",
+      "enrichment": "None.",
+      "freshness": "Latest _FIVETRAN_SYNCED on the source table; stale after 48 hours or no sync in 30 days.",
+      "evidence": "Top three channels with counts and shares.",
+      "producer": "queries.pps.get_attribution via scout.health.sources.attribution_entry",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": null,
+        "maximum": null,
+        "note": "No single value; see evidence for the rows."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.customer_health_score",
+      "label": "Customer health score (customer-health/0.1)",
+      "family": "customer_health",
+      "value_kind": "score_0_100",
+      "numerator": null,
+      "denominator": null,
+      "sql": null,
+      "date_basis": "Each component's own window",
+      "maturity": "Returns component uses mature cohorts.",
+      "filters": [],
+      "filter_note": "Components cover all customers.",
+      "enrichment": "None.",
+      "freshness": "Stale or below-minimum components are excluded.",
+      "evidence": "Component weights, normalization, inclusion and reasons, covered weight, partial flag, the range the full score could take, and the previous-window score when comparable.",
+      "producer": "scout.health.score.compute_health_score",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "weights and normalization are proposed defaults; no targets or baselines configured"
+      ],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Weighted composite of normalized components; versioned and provisional."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.cross_source_themes",
+      "label": "What customers are saying (cross-source themes)",
+      "family": "customer_health",
+      "value_kind": "themes",
+      "numerator": null,
+      "denominator": null,
+      "sql": null,
+      "date_basis": "Each source's own window",
+      "maturity": "Not cohort-based.",
+      "filters": [
+        "channel",
+        "tag",
+        "agent"
+      ],
+      "filter_note": "Filters apply to ticket evidence only.",
+      "enrichment": "Products named in cited items, resolved through the catalog.",
+      "freshness": "Same as each source.",
+      "evidence": "Per theme and source: distinct tickets, responses, or reviews and share of analysed items, never summed across sources; sources count; products; verbatim quote; evidence refs. Eligible, retrieved, and analysed counts per source.",
+      "producer": "scout.health.themes.synthesize",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": null,
+        "maximum": null,
+        "note": "No single value; see evidence for themes and counts."
+      },
+      "validation": "not_validated"
+    }
+  ]
+}

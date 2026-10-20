@@ -1,0 +1,178 @@
+"""CX/VOC data contract: specs stay in sync with the code, and instances report status honestly.
+
+Every source is mocked. Nothing here opens a connection or calls a model.
+"""
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pytest
+
+from queries import returns
+from scout.contract import payload as payload_mod
+from scout.contract import spec as spec_mod
+from scout.contract.__main__ import render_spec
+from scout.contract.payload import contract_payload, instance
+from scout.contract.spec import (
+    CONTRACT_VERSION,
+    NOT_VALIDATED,
+    RATE_PCT,
+    SCALES,
+    SHARE_PCT,
+    UNAVAILABLE,
+    VALIDATED,
+    ValidationRecord,
+    all_specs,
+)
+from scout.health.score import DEFAULT_CONFIG
+from scout.returns.metrics import COHORT_UNITS_MEASURES, RATE_DEFINITIONS
+from scout.routing.command_parser import parse_command
+from scout.services.health_service import build_health_report
+from scout.tests.health_fixture import patched_sources, source_outputs
+from scout.tests.test_returns_report import _Conn
+
+CONTRACT_FILE = Path(__file__).resolve().parents[2] / "docs" / "contracts" / "cx-voc-contract.v1.json"
+SPECS = {s.metric_id: s for s in all_specs()}
+FIXED_TIME = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
+
+
+@pytest.fixture
+def returns_data(monkeypatch):
+    monkeypatch.setattr(returns, "get_connection", lambda: _Conn([]))
+
+    def _no_queries(*args, **kwargs):
+        raise AssertionError("no rate query may run while sources are unverified")
+
+    monkeypatch.setattr(returns, "execute_query_dict", _no_queries)
+    return returns.run_returns(30)
+
+
+@pytest.fixture
+def health_report():
+    with patched_sources(source_outputs()):
+        return build_health_report(parse_command("/voc L30"), voc_data={"volume": {"TOTAL_CONVERSATIONS": 4400}})
+
+
+def _by_id(doc):
+    return {m["metric_id"]: m for m in doc["metrics"]}
+
+
+# ── Spec ─────────────────────────────────────────────────────────
+
+def test_committed_contract_file_matches_the_code():
+    assert CONTRACT_FILE.read_text(encoding="utf-8") == render_spec(), (
+        "Regenerate with: python -m scout.contract > docs/contracts/cx-voc-contract.v1.json")
+
+
+def test_metric_ids_are_unique_and_every_kind_has_a_scale():
+    ids = [s.metric_id for s in all_specs()]
+    assert len(ids) == len(set(ids)) == 19
+    assert all(s.value_kind in SCALES for s in all_specs())
+    assert {s.family for s in all_specs()} == {"returns", "customer_health"}
+
+
+def test_returns_rate_specs_mirror_the_returns_contract():
+    for d in RATE_DEFINITIONS:
+        s = SPECS[f"returns.{d.metric_id}"]
+        assert s.sql == d.sql and s.value_kind == RATE_PCT
+        assert s.numerator is not None and s.numerator.expression == f"SUM({d.numerator})"
+        assert s.numerator.source == "ANALYTICS.RETURN_REDO" and s.numerator.source_status == "named_unverified"
+        assert s.denominator is not None and s.denominator.description == COHORT_UNITS_MEASURES[d.denominator]
+    share = SPECS["returns.exchange_share_of_returned_units"]
+    assert share.denominator is not None and share.denominator.source == "ANALYTICS.RETURN_REDO"
+    rate = SPECS["returns.item_exchange_rate"]
+    assert rate.denominator is not None and "FCT_SHOPIFY__ORDER_LINES" in rate.denominator.source
+    assert any("not yet read" in b for b in SPECS["returns.item_return_rate"].blockers)
+
+
+def test_health_weights_come_from_the_score_config():
+    weights = {c.key: c.weight for c in DEFAULT_CONFIG.components}
+    assert SPECS["health.nps_survey"].health_weight == weights["nps_survey"]
+    assert SPECS["health.support_csat"].health_weight == weights["support_csat"]
+    assert SPECS["health.okendo_rating"].health_weight == weights["reviews"]
+    assert SPECS["returns.item_return_rate"].health_weight == weights["returns"]
+    scored = [s.health_weight or 0 for s in all_specs() if s.in_health_score]
+    assert sum(scored) == pytest.approx(1.0)
+    for unscored in ("health.returning_pps_nps", "health.new_pps_nps", "returns.item_exchange_rate"):
+        assert not SPECS[unscored].in_health_score
+
+
+def test_nothing_is_validated():
+    assert spec_mod.VALIDATION_RECORDS == {}
+    doc = json.loads(CONTRACT_FILE.read_text(encoding="utf-8"))
+    assert doc["contract_version"] == CONTRACT_VERSION
+    assert {m["validation"] for m in doc["metrics"]} == {NOT_VALIDATED}
+
+
+# ── Instances ────────────────────────────────────────────────────
+
+def test_payload_covers_returns_and_health_without_validating_anything(returns_data, health_report):
+    doc = contract_payload(returns_data, health_report, generated_at=FIXED_TIME)
+    assert doc["contract_version"] == CONTRACT_VERSION and doc["generated_at"] == FIXED_TIME.isoformat()
+    by = _by_id(doc)
+    assert set(by) == set(SPECS)
+    assert len(doc["metrics"]) == len(SPECS)
+    assert {m["status"]["validation"] for m in doc["metrics"]} == {NOT_VALIDATED}
+    json.dumps(doc)
+
+
+def test_returns_rates_are_unavailable_with_null_values_and_reasons(returns_data):
+    by = _by_id(contract_payload(returns_data, generated_at=FIXED_TIME))
+    for d in RATE_DEFINITIONS:
+        m = by[f"returns.{d.metric_id}"]
+        assert m["status"]["availability"] == UNAVAILABLE and m["value"] is None
+        assert any("ANALYTICS.RETURN_REDO" in r for r in m["status"]["reasons"])
+        assert m["enrichment"]["coverage"] == {"status": "not_built"}
+        assert m["denominator"]["value"] is None
+    for key in ("returns.reason_share", "returns.comment_themes", "returns.products_to_watch"):
+        assert by[key]["status"]["availability"] == UNAVAILABLE
+
+
+def test_refund_export_instances_keep_lines_and_shares_apart(returns_data):
+    by = _by_id(contract_payload(returns_data, generated_at=FIXED_TIME))
+    lines = by["returns.refund_lines"]
+    assert (lines["value"], lines["value_kind"], lines["status"]["availability"]) == (1000, "count", "available")
+    exchange = by["returns.refund_line_share_exchange"]
+    assert (exchange["value"], exchange["numerator"]["value"], exchange["denominator"]["value"]) == (8.0, 80, 1000)
+    assert "refund date, ET" in exchange["window"]
+
+
+def test_health_instances_carry_sample_freshness_and_comparison(health_report):
+    by = _by_id(contract_payload(health_report=health_report, generated_at=FIXED_TIME))
+    csat = by["health.support_csat"]
+    assert (csat["value"], csat["numerator"]["value"], csat["denominator"]["value"]) == (91.3, 376, 412)
+    assert csat["freshness"]["status"] == "fresh"
+    assert csat["evidence"]["comparison"]["prior_value"] == 90.1
+    nps = by["health.nps_survey"]
+    assert nps["value"] == 51.6 and nps["value_kind"] == "nps" and nps["denominator"]["value"] == 310
+    score = by["health.customer_health_score"]
+    assert score["status"]["availability"] == "provisional" and score["evidence"]["partial"] is True
+    themes = by["health.cross_source_themes"]
+    assert themes["evidence"]["themes"][0]["counts"] == {"tickets": 2, "nps": 1, "reviews": 1}
+    assert by["returns.item_return_rate"]["status"]["availability"] == UNAVAILABLE
+
+
+def test_percent_values_stay_on_the_0_to_100_scale(returns_data, health_report):
+    for m in contract_payload(returns_data, health_report, generated_at=FIXED_TIME)["metrics"]:
+        if m["value_kind"] in (RATE_PCT, SHARE_PCT) and m["value"] is not None:
+            assert 0 <= m["value"] <= 100, m["metric_id"]
+
+
+def test_validation_needs_a_record_and_an_available_metric(monkeypatch, returns_data, health_report):
+    records = {
+        "health.support_csat": ValidationRecord("health.support_csat", "2026-11-01", "reconciled", "link"),
+        "returns.item_return_rate": ValidationRecord("returns.item_return_rate", "2026-11-01", "reconciled", "link"),
+    }
+    monkeypatch.setattr(payload_mod, "VALIDATION_RECORDS", records)
+    by = _by_id(contract_payload(returns_data, health_report, generated_at=FIXED_TIME))
+    assert by["health.support_csat"]["status"]["validation"] == VALIDATED
+    assert by["returns.item_return_rate"]["status"]["validation"] == NOT_VALIDATED
+    assert by["health.nps_survey"]["status"]["validation"] == NOT_VALIDATED
+
+
+def test_instance_hides_values_when_unavailable_and_rejects_unknown_states():
+    spec = SPECS["health.support_csat"]
+    assert instance(spec, availability=UNAVAILABLE, value=91.3)["value"] is None
+    with pytest.raises(ValueError):
+        instance(spec, availability="validated")

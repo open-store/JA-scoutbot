@@ -9,6 +9,7 @@
 | [architecture/customer-health.md](architecture/customer-health.md) | General `/voc`: multi-source scorecard, cited themes, and the versioned health score |
 | [architecture/decisions.md](architecture/decisions.md) | How CSAT, errors, returns, and NPS are defined |
 | [architecture/returns-data.md](architecture/returns-data.md) | Returns sources, lineage, order-data path, and the return-rate metric map |
+| [architecture/data-contract.md](architecture/data-contract.md) | Versioned CX/VOC data contract: metric IDs, scales, sources, status, and the JSON spec in `docs/contracts/` |
 | [architecture/returns-reasons.md](architecture/returns-reasons.md) | What fills each reason section, the Redo field map, comment themes, and the product monitoring view |
 | [integrations/snowflake.md](integrations/snowflake.md) | Connection env vars and which table each command uses |
 | [integrations/richpanel-schema.md](integrations/richpanel-schema.md) | Conversations and messages schema, and how tags are stored |
