@@ -6,6 +6,7 @@
 | [architecture/nl-routing.md](architecture/nl-routing.md) | How plain-English questions become commands, and the gaps that remain |
 | [architecture/question-router.md](architecture/question-router.md) | Where a future question-type router plugs in. Types are not listed here |
 | [architecture/product-voc.md](architecture/product-voc.md) | Product-feedback pipeline and retrieval strategy |
+| [architecture/customer-health.md](architecture/customer-health.md) | General `/voc`: multi-source scorecard, cited themes, and the versioned health score |
 | [architecture/decisions.md](architecture/decisions.md) | How CSAT, errors, returns, and NPS are defined |
 | [architecture/returns-data.md](architecture/returns-data.md) | Returns sources, lineage, order-data path, and the return-rate metric map |
 | [integrations/snowflake.md](integrations/snowflake.md) | Connection env vars and which table each command uses |

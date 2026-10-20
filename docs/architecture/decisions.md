@@ -50,6 +50,10 @@ Surveys are not averaged into one company NPS. `NPS Survey` and `NPS Survey Copy
 
 The time filter is `RESPONSE.CREATED_AT`. `COMPLETED_AT` is often null, so it is not used.
 
+## Customer-health score
+
+General `/voc` shows a provisional composite, version `customer-health/0.1`. It weights NPS Survey NPS at 30%, Support CSAT at 25%, Okendo rating at 20%, and item return rate at 25%. Each is normalized linearly over its full scale. Excluded components are never scored as zero. The score needs 3 components and 70% of the weight. Partial coverage is disclosed with the possible full-score range. CSAT percentage, average star rating, and the `/daily` API score are three different measures and are labelled as such. Details are in [customer health](customer-health.md).
+
 ## Lookback windows do not match
 
 | Path | Window |
@@ -58,6 +62,7 @@ The time filter is `RESPONSE.CREATED_AT`. `COMPLETED_AT` is often null, so it is
 | `/nps`, `/pps`, and `/pps_new` | UTC now minus N days, as dates |
 | `/reviews` | `datetime.utcnow()` minus N days |
 | `/returns` | `CURRENT_DATE()` in Snowflake, minus N days |
+| `/voc` health report | Each scorecard entry keeps its source's window above. Return rates use mature delivery cohorts |
 | `/daily` | Today in `America/New_York` |
 
 Aligning these would change reported numbers, so it is tracked separately and not part of a docs-only change.

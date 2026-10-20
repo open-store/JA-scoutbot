@@ -13,6 +13,7 @@ Status of the work that used to live in the root README and in the agent notes. 
 | Daily CS KPIs | `/daily`, `scout/integrations/richpanel.py` |
 | Natural-language routing for NPS, PPS, attribution, returns, and reviews | `scout/routing/nl_router.py` |
 | Product VOC with a shared conversation scope | `scout/services/voc_service.py` |
+| Customer-health `/voc`: multi-source scorecard, cited themes, provisional weighted score | `scout/services/health_service.py`, `scout/health/`. See [customer health](architecture/customer-health.md) |
 
 A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`, `/pps`, `/pps_new`, and `/attribution`.
 
@@ -24,6 +25,11 @@ A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`
 
 - Profile `ANALYTICS.RETURN_REDO` with `python -m scout.returns.discovery`. Redo is the authority for returns, outcomes, reasons, and comments. See [returns data](architecture/returns-data.md).
 - Return and exchange rates need Redo units over eligible delivered units from `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, joined on Shopify order and line IDs. Both relations are named, not yet verified for Scout's role.
+
+### Customer-health score
+
+- The score is provisional (`customer-health/0.1`). Weights, minimum samples, and the 48-hour staleness limit are proposed defaults. Calibrate normalization to trailing Jack Archer baselines or agreed targets before calling it validated.
+- Returns stay out of the score until the returns contract reports a validated item return rate.
 
 ### Natural-language quality
 

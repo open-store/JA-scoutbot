@@ -29,7 +29,7 @@ Slack (Socket Mode)
 | Command | Function | Source label |
 |---|---|---|
 | `/csat` | `queries/csat.py` `run_csat` | Snowflake |
-| `/voc` without a product | `queries/voc.py` `run_voc` | Snowflake |
+| `/voc` without a product | `queries/voc.py` `run_voc`, then `scout/services/health_service.py` `build_health_report` ([customer health](customer-health.md)) | Snowflake, KnoCommerce tables, Okendo API |
 | `/voc` with `product:` | `scout/services/voc_service.py` `run_product_voc` | Snowflake |
 | `/errors` | `queries/errors.py` `run_errors` | Snowflake |
 | `/nps` | `queries/nps.py` `get_full_nps_report` | Snowflake (KnoCommerce tables) |
@@ -74,7 +74,7 @@ The process is `python scout_bot.py` with the repo root on `sys.path` (the image
 
 ## VOC boundary
 
-General VOC calls `run_voc()` directly.
+General VOC calls `run_voc()` directly for ticket metrics, then attaches the customer-health report. The report reuses the CSAT, NPS, PPS, attribution, reviews, and returns-rate modules; it does not touch the product-feedback service.
 
 Product VOC goes through `voc_service.run_product_voc`:
 
