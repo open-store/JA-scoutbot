@@ -9,12 +9,20 @@ Return and exchange rates are Redo units over eligible delivered Shopify units
 for a delivery cohort (``scout.returns.metrics``). They stay unavailable until
 ``ANALYTICS.RETURN_REDO`` and the Shopify order lines are verified and the
 cohort maturity horizon is known. ``/returns`` never marks a rate validated.
+
+Redo reasons, comment themes, and the product monitoring view
+(``scout.returns.reasons``, ``comments``, ``recommendations``) stay
+unavailable until the Redo fields in ``scout.returns.redo_fields`` are
+verified. ``REFUND_NOTE`` is an internal Shopify note, not a customer reason.
 """
 
 from scout.integrations.snowflake import execute_query_dict, get_connection
 from scout.returns import cohorts, metrics
+from scout.returns.comments import CommentSynthesis, unavailable_comment_synthesis
 from scout.returns.metrics import (
+    ITEM_RETURN_RATE,
     CohortScope,
+    MetricStatus,
     RatesReport,
     UnitCounts,
     evaluate_rates,
@@ -22,6 +30,8 @@ from scout.returns.metrics import (
     source_blockers,
     unavailable_results,
 )
+from scout.returns.reasons import ReasonSummary, unavailable_reason_summary
+from scout.returns.recommendations import MonitoringView, view_label
 
 TABLE = "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS"
 RATE_SCOPE_LABEL = "online store, DTC"
@@ -53,6 +63,29 @@ def run_return_rates(days: int, product_filter: str | None = None) -> RatesRepor
     counts = UnitCounts.from_row(rows[0]) if rows else UnitCounts()
     results = evaluate_rates(counts, mature=window.mature, reconciled=False)
     return RatesReport(results=results, window=window, scope_label=RATE_SCOPE_LABEL)
+
+
+def run_return_voice(days: int, rates: RatesReport) -> dict:
+    """Redo reasons, comment themes, and the product monitoring view, or why each is unavailable.
+
+    The Redo reason and comment query is written from the profiled
+    RETURN_REDO columns; until then nothing here reads Snowflake.
+    """
+    population = f"Redo returned units, returns requested in the last {days} days"
+    reasons = unavailable_reason_summary(population) or ReasonSummary(
+        status=MetricStatus.UNAVAILABLE, population=population,
+        reason="the Redo reason query is not built yet")
+    comments = unavailable_comment_synthesis(population) or CommentSynthesis(
+        status=MetricStatus.UNAVAILABLE, population=population,
+        reason="the Redo comment query is not built yet")
+    overall = next(r for r in rates.results if r.definition is ITEM_RETURN_RATE)
+    monitoring = MonitoringView(
+        status=MetricStatus.UNAVAILABLE,
+        label=view_label(),
+        overall=overall,
+        reason="product rankings need item return rates by product",
+    )
+    return {"reasons": reasons, "comments": comments, "monitoring": monitoring}
 
 
 def run_returns(days: int, product_filter: str | None = None) -> dict:
@@ -209,7 +242,9 @@ def run_returns(days: int, product_filter: str | None = None) -> dict:
     straight_pct = round(straight_returns / safe_div * 100, 1)
     redo_pct = round(redo_returns / safe_div * 100, 1)
 
+    rates = run_return_rates(days, product_filter)
     return {
+        **run_return_voice(days, rates),
         "total_lines": total_lines,
         "total_qty_returned": total_qty,
         "exchanges": exchanges,
@@ -235,5 +270,5 @@ def run_returns(days: int, product_filter: str | None = None) -> dict:
         "volume_change_pct": volume_change_pct,
         "qty_change_pct": qty_change_pct,
         "product_filter": product_filter,
-        "rates": run_return_rates(days, product_filter),
+        "rates": rates,
     }

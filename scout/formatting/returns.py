@@ -1,7 +1,10 @@
 """Slack formatting for `/returns`."""
 
 from scout.formatting._common import _no_data_message
+from scout.returns.comments import CommentSynthesis
 from scout.returns.metrics import MetricStatus, RatesReport, RateResult
+from scout.returns.reasons import ReasonSummary
+from scout.returns.recommendations import MonitoringView, RankedProduct
 
 _RATE_NOTE = (
     "Rates are Redo units ÷ eligible delivered Shopify units; exchange share is "
@@ -36,6 +39,96 @@ def format_rates(report: RatesReport) -> list[str]:
     lines.append(f"_{_RATE_NOTE}_")
     if report.blockers:
         lines.append(f"_Not available yet: {'; '.join(report.blockers)}._")
+    lines.append("")
+    return lines
+
+
+def _status_note(status: MetricStatus) -> str:
+    return " — _provisional_" if status is MetricStatus.PROVISIONAL else ""
+
+
+def format_reason_summary(summary: ReasonSummary) -> list[str]:
+    if summary.status is MetricStatus.UNAVAILABLE or summary.coverage is None:
+        return [f"• *Redo return reasons:* unavailable — {summary.reason}"]
+    c = summary.coverage
+    lines = [f"*Return reasons* (share of {c.units:,} {summary.population}){_status_note(summary.status)}"]
+    for r in summary.reasons[:6]:
+        share = f"{r.share_of_units_pct:.1f}%" if r.share_of_units_pct is not None else "n/a"
+        line = f"• *{r.reason}:* {r.units:,} units ({share}), {r.returns:,} returns"
+        if r.secondary:
+            line += " — " + ", ".join(f"{name} {units:,}" for name, units in r.secondary[:2])
+        lines.append(line)
+    lines.append(
+        f"_Coverage: {c.units_with_reason:,} of {c.units:,} units have a reason, {c.units_with_comment:,} "
+        f"have a comment, {c.units_with_neither:,} have neither ({c.returns:,} returns)._"
+    )
+    if c.duplicate_items_dropped:
+        lines.append(f"_{c.duplicate_items_dropped:,} duplicate item rows were dropped before counting._")
+    return lines
+
+
+def format_comment_synthesis(synthesis: CommentSynthesis) -> list[str]:
+    if synthesis.status is MetricStatus.UNAVAILABLE:
+        return [f"• *Customer return comments:* unavailable — {synthesis.reason}"]
+    lines = [
+        f"*What customers say in return comments* ({synthesis.comments_analysed:,} of "
+        f"{synthesis.comments_in_scope:,} distinct comments analysed){_status_note(synthesis.status)}"
+    ]
+    for t in synthesis.themes[:5]:
+        products = ", ".join(f"{name} ({n})" for name, n in t.products[:3])
+        count = "1 return, emerging signal" if t.single_report else f"{t.returns:,} returns"
+        lines.append(f"• *{t.label}* ({t.meaning.replace('_', ' ')}) — {count}; {products}")
+        if t.quote:
+            lines.append(f"   _\"{t.quote}\"_")
+    lines += [f"_{c}_" for c in synthesis.caveats]
+    return lines
+
+
+def _ranked_line(r: RankedProduct) -> str:
+    c = r.candidate
+    season = f" ({c.season})" if c.season else ""
+    trend = f", {r.trend_pp:+.1f} pp vs comparable prior" if r.trend_pp is not None else ", no comparable prior"
+    return (
+        f"• *{c.product}*{season}: {r.rate_pct:.1f}% item return rate, {r.delta_pp:+.1f} pp vs overall, "
+        f"{r.excess_units:+,.0f} returned units vs the overall rate ({r.delivered_units:,} delivered){trend}"
+        f"{_status_note(r.status)}"
+    )
+
+
+def format_monitoring_view(view: MonitoringView) -> list[str]:
+    if view.status is MetricStatus.UNAVAILABLE:
+        return [f"• *Products to watch:* unavailable — {view.reason}. _{view.label}_"]
+    lines = ["*Products to watch*", f"_{view.label}_"]
+    for r in view.needs_attention[:5]:
+        lines.append(_ranked_line(r))
+    if view.low_sample:
+        lines.append("_Low sample, directional only:_")
+        lines += [_ranked_line(r) for r in view.low_sample[:3]]
+    if view.performing_well:
+        lines.append("_Below the overall rate:_")
+        lines += [_ranked_line(r) for r in view.performing_well[:3]]
+    skipped = len(view.not_ranked) + len(view.out_of_focus) + len(view.excluded)
+    if skipped:
+        lines.append(
+            f"_Not ranked: {len(view.not_ranked)} without an available rate, {len(view.out_of_focus)} "
+            f"Prior or unknown season, {len(view.excluded)} excluded from recommendations._"
+        )
+    return lines
+
+
+def format_customer_voice(data: dict) -> list[str]:
+    reasons = data.get("reasons")
+    comments = data.get("comments")
+    monitoring = data.get("monitoring")
+    if not any(isinstance(x, (ReasonSummary, CommentSynthesis, MonitoringView)) for x in (reasons, comments, monitoring)):
+        return []
+    lines = ["*Customer reasons and products to watch*"]
+    if isinstance(reasons, ReasonSummary):
+        lines += format_reason_summary(reasons)
+    if isinstance(comments, CommentSynthesis):
+        lines += format_comment_synthesis(comments)
+    if isinstance(monitoring, MonitoringView):
+        lines += format_monitoring_view(monitoring)
     lines.append("")
     return lines
 
@@ -127,6 +220,8 @@ def format_returns(data: dict) -> str:
             lines.append(f"• *{c['category']}:* {c['qty']} units")
         lines.append("")
 
+    lines += format_customer_voice(data)
+
     if top_notes:
         lines.append("*Internal refund notes* (Shopify `REFUND_NOTE`, generic notes excluded; not customer reasons)")
         for n in top_notes[:5]:
@@ -154,6 +249,5 @@ def format_returns(data: dict) -> str:
         "• Refund volume and mix come from Shopify refunds, not Redo. Open returns are missing, "
         "and exchanges that created no refund may be too."
     )
-    lines.append("• Redo return reasons and customer comments are not shown yet.")
 
     return "\n".join(lines)
