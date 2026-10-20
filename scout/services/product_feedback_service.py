@@ -24,13 +24,18 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Set, Tuple
+from zoneinfo import ZoneInfo
 
 from scout.llm import MODEL, get_client
 
 from scout.taxonomy.tags import tag_names_for_group
-from scout.taxonomy.products import resolve_aliases, canonical_name
+from scout.taxonomy.products import ProductResolution, alias_only_catalog, resolve_product
 from scout.models.product_feedback import (
+    BODY_ONLY,
+    EMPTY,
+    STRICT,
     ProductFeedbackRequest,
     ProductFeedbackScope,
     ProductFeedbackResult,
@@ -38,7 +43,6 @@ from scout.models.product_feedback import (
 )
 from scout.repositories.product_feedback_repository import (
     fetch_strict_candidates,
-    fetch_fallback_relaxed_candidates,
     fetch_fallback_body_only_candidates,
     fetch_customer_messages,
     resolve_tag_names_to_uuids,
@@ -47,6 +51,32 @@ from scout.services.evidence_service import process_evidence
 
 logger = logging.getLogger("scout.services.product_feedback")
 
+# Messages sent to the model in one synthesis call.
+SYNTHESIS_MAX_MESSAGES = 150
+
+_SCOPE_FILTER_KEYS = ("channel", "tag", "agent")
+
+
+def _window(request: ProductFeedbackRequest) -> Tuple[datetime, datetime]:
+    """Explicit window for the request, defaulting to the slash-parser window."""
+    if request.start is not None and request.end is not None:
+        return request.start, request.end
+    tz = ZoneInfo(request.timezone)
+    end = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    return end - timedelta(days=request.timeframe_days), end
+
+
+def _resolution(request: ProductFeedbackRequest) -> ProductResolution:
+    if request.resolution is not None:
+        return request.resolution
+    return resolve_product(request.product_name, alias_only_catalog())
+
+
+def _window_label(start: datetime, end: datetime) -> str:
+    last_day = end - timedelta(days=1)
+    return f"{start.strftime('%b %d')}–{last_day.strftime('%b %d')}, {last_day.year}"
+
+
 # ---------------------------------------------------------------------------
 # Step 1 — Scope discovery
 # ---------------------------------------------------------------------------
@@ -54,15 +84,20 @@ logger = logging.getLogger("scout.services.product_feedback")
 def get_candidate_scope(request: ProductFeedbackRequest) -> ProductFeedbackScope:
     """Discover candidate conversations for the given product request.
 
-    Tries strict retrieval first, then ranked fallbacks.
-    Returns a ProductFeedbackScope with the authoritative conversation IDs.
+    Tries strict retrieval first, then the body-only fallback, unless
+    ``request.retrieval_ceiling`` pins the widest pass. Returns a
+    ProductFeedbackScope with the authoritative conversation IDs.
 
     This function does NOT fetch message bodies or call the LLM.
     It is intentionally fast and side-effect-free beyond Snowflake reads.
     """
-    product = canonical_name(request.product_name)
-    aliases = list(request.product_aliases) if request.product_aliases else resolve_aliases(request.product_name)
+    resolution = _resolution(request)
+    product = resolution.canonical_name or request.product_name
+    aliases = list(request.product_aliases) if request.product_aliases else list(resolution.match_phrases)
     tag_groups = list(request.tag_groups)
+    start, end = _window(request)
+    filters = {k: str(v) for k, v in request.filters.items() if k in _SCOPE_FILTER_KEYS and v}
+    cap = request.max_conversations
 
     # Resolve tag scope → UUIDs
     all_tag_names: Set[str] = set()
@@ -74,72 +109,74 @@ def get_candidate_scope(request: ProductFeedbackRequest) -> ProductFeedbackScope
     tag_uuids = resolve_tag_names_to_uuids(all_tag_names)
 
     logger.info(
-        "Scope discovery: product=%s, aliases=%s, tag_uuids=%d, days=%d",
-        product, aliases, len(tag_uuids), request.timeframe_days,
+        "Scope discovery (%s): product=%s, phrases=%s, tag_uuids=%d, window=%s..%s, filters=%s",
+        request.period, product, aliases, len(tag_uuids), start.isoformat(), end.isoformat(), filters,
     )
 
-    caveats: List[str] = []
+    caveats: List[str] = list(resolution.caveats)
+    capped = False
 
     # --- Strict pass ---
     candidates = fetch_strict_candidates(
         tag_uuids=tag_uuids,
         aliases=aliases,
-        timeframe_days=request.timeframe_days,
+        start=start,
+        end=end,
+        filters=filters,
+        max_conversations=cap,
     )
-    retrieval_mode = "strict"
+    capped = capped or len(candidates) >= cap
+    retrieval_mode = STRICT
 
-    # --- Fallback 1: relaxed alias match (still requires tag) ---
-    if len(candidates) < request.min_sample_size:
+    # --- Fallback: body/subject only (no tag requirement) ---
+    if request.retrieval_ceiling is None:
+        widen = len(candidates) < request.min_sample_size
+    else:
+        widen = request.retrieval_ceiling == BODY_ONLY
+    if widen:
         logger.info(
-            "Strict returned %d (< %d), trying fallback_relaxed",
-            len(candidates), request.min_sample_size,
+            "Strict returned %d (min %d, ceiling %s), adding body-only pass",
+            len(candidates), request.min_sample_size, request.retrieval_ceiling,
         )
-        fallback1 = fetch_fallback_relaxed_candidates(
-            tag_uuids=tag_uuids,
+        fallback = fetch_fallback_body_only_candidates(
             aliases=aliases,
-            timeframe_days=request.timeframe_days,
+            start=start,
+            end=end,
+            filters=filters,
+            max_conversations=cap,
         )
+        capped = capped or len(fallback) >= cap
         seen_ids = {c["CONVERSATION_ID"] for c in candidates}
-        for c in fallback1:
+        added = 0
+        for c in fallback:
             if c["CONVERSATION_ID"] not in seen_ids:
                 candidates.append(c)
                 seen_ids.add(c["CONVERSATION_ID"])
-        if len(candidates) >= request.min_sample_size:
-            retrieval_mode = "fallback_relaxed"
+                added += 1
+        retrieval_mode = BODY_ONLY
+        if added:
             caveats.append(
-                "Broadened matching was used to find enough conversations. "
-                "Some results may reference related products."
+                "Results include conversations without product-feedback tags. "
+                "Some may not be directly product-related."
             )
 
-    # --- Fallback 2: body/subject only (no tag requirement) ---
-    if len(candidates) < request.min_sample_size:
-        logger.info(
-            "Relaxed returned %d (< %d), trying fallback_body_only",
-            len(candidates), request.min_sample_size,
-        )
-        fallback2 = fetch_fallback_body_only_candidates(
-            aliases=aliases,
-            timeframe_days=request.timeframe_days,
-        )
-        seen_ids = {c["CONVERSATION_ID"] for c in candidates}
-        for c in fallback2:
-            if c["CONVERSATION_ID"] not in seen_ids:
-                candidates.append(c)
-                seen_ids.add(c["CONVERSATION_ID"])
-        retrieval_mode = "fallback_body_only"
+    if len(candidates) > cap:
+        candidates = candidates[:cap]
+        capped = True
+    if capped:
         caveats.append(
-            "Results include conversations without product-feedback tags. "
-            "Some may not be directly product-related."
+            f"Scope capped at the {cap} most recent matching conversations; "
+            "conversation counts are a lower bound."
         )
 
     conversation_ids = [c["CONVERSATION_ID"] for c in candidates]
     logger.info(
-        "Scope discovery complete: %d conversations (mode=%s)",
-        len(conversation_ids), retrieval_mode,
+        "Scope discovery complete (%s): %d conversations (mode=%s, capped=%s)",
+        request.period, len(conversation_ids), retrieval_mode, capped,
     )
 
     if not conversation_ids:
-        retrieval_mode = "empty"
+        retrieval_mode = EMPTY
 
     return ProductFeedbackScope(
         product_name=product,
@@ -149,7 +186,24 @@ def get_candidate_scope(request: ProductFeedbackRequest) -> ProductFeedbackScope
         retrieval_mode=retrieval_mode,
         timeframe_days=request.timeframe_days,
         caveats=caveats,
+        start=start,
+        end=end,
+        timezone=request.timezone,
+        filters=filters,
+        resolution=resolution,
+        topic=request.topic,
+        period=request.period,
+        capped=capped,
+        max_conversations=cap,
     )
+
+
+def retrieval_ceiling_for(scope: ProductFeedbackScope) -> str:
+    """Widest pass a comparison scope should use to match *scope*.
+
+    An empty scope already tried every pass, so the comparison does too.
+    """
+    return STRICT if scope.retrieval_mode == STRICT else BODY_ONLY
 
 
 # ---------------------------------------------------------------------------
@@ -167,11 +221,15 @@ def get_product_feedback_for_scope(
     """
     product = scope.product_name
     aliases = scope.aliases_used
+    if scope.start is not None and scope.end is not None:
+        timeframe_label = _window_label(scope.start, scope.end)
+    else:
+        timeframe_label = f"Last {request.timeframe_days} complete days"
 
     if scope.is_empty:
         return ProductFeedbackResult(
             product_name=product,
-            timeframe_label=f"Last {request.timeframe_days} complete days",
+            timeframe_label=timeframe_label,
             total_candidate_conversations=0,
             total_messages_analysed=0,
             retrieval_mode=scope.retrieval_mode,
@@ -179,6 +237,9 @@ def get_product_feedback_for_scope(
             so_what="No data available for this product in this timeframe.",
             recommended_action="Try a longer timeframe (e.g., L180) or check the product name.",
             caveats=list(scope.caveats) + ["No conversations matched the product filter."],
+            low_sample=True,
+            retrieval_capped=scope.capped,
+            topic=scope.topic,
         )
 
     # --- Fetch customer-authored messages ---
@@ -196,6 +257,7 @@ def get_product_feedback_for_scope(
             max_messages=request.max_messages,
             strict_customer=False,
         )
+    messages_capped = len(raw_messages) >= request.max_messages
 
     # --- Evidence pipeline ---
     cleaned_messages = process_evidence(
@@ -205,12 +267,27 @@ def get_product_feedback_for_scope(
         max_output=request.max_messages,
     )
 
-    total_analysed = len(cleaned_messages)
-    logger.info("Cleaned messages for synthesis: %d", total_analysed)
+    analysed = [m for m in cleaned_messages if m.get("cleaned_body")][:SYNTHESIS_MAX_MESSAGES]
+    total_analysed = len(analysed)
+    logger.info(
+        "Messages: %d retrieved, %d cleaned, %d analysed",
+        len(raw_messages), len(cleaned_messages), total_analysed,
+    )
 
     # --- Build caveats (merge scope caveats + synthesis caveats) ---
     caveats: List[str] = list(scope.caveats)
-    if total_analysed < request.min_sample_size:
+    if messages_capped:
+        caveats.append(
+            f"Message retrieval stopped at the {request.max_messages} most recent customer "
+            "messages; themes are sample-based."
+        )
+    if len(cleaned_messages) > total_analysed:
+        caveats.append(
+            f"Themes use the {total_analysed} highest-ranked of {len(cleaned_messages)} "
+            "cleaned messages."
+        )
+    low_sample = total_analysed < request.min_sample_size
+    if low_sample:
         caveats.append(
             f"Low sample size ({total_analysed} messages). "
             "Results are directional only — try a longer timeframe for more data."
@@ -218,7 +295,7 @@ def get_product_feedback_for_scope(
 
     # --- LLM synthesis ---
     if total_analysed > 0:
-        synthesis = _synthesize_themes(cleaned_messages, product, max_messages=150)
+        synthesis = _synthesize_themes(analysed, product, topic=scope.topic)
     else:
         synthesis = {
             "headline": f"No usable customer messages found for '{product}' after cleaning.",
@@ -239,7 +316,7 @@ def get_product_feedback_for_scope(
 
     return ProductFeedbackResult(
         product_name=product,
-        timeframe_label=f"Last {request.timeframe_days} complete days",
+        timeframe_label=timeframe_label,
         total_candidate_conversations=scope.total_conversations,
         total_messages_analysed=total_analysed,
         retrieval_mode=scope.retrieval_mode,
@@ -249,6 +326,12 @@ def get_product_feedback_for_scope(
         recommended_action=synthesis.get("recommended_action", ""),
         caveats=caveats,
         candidate_conversation_ids=scope.conversation_ids,
+        retrieved_message_count=len(raw_messages),
+        cleaned_message_count=len(cleaned_messages),
+        analysed_message_ids=[str(m.get("MESSAGE_ID", "")) for m in analysed],
+        low_sample=low_sample,
+        retrieval_capped=scope.capped or messages_capped,
+        topic=scope.topic,
     )
 
 
@@ -259,10 +342,14 @@ def get_product_feedback_for_scope(
 def _synthesize_themes(
     cleaned_messages: List[Dict[str, Any]],
     product_name: str,
-    max_messages: int = 150,
+    topic: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Send cleaned message bodies to the LLM for theme synthesis."""
-    bodies = [m["cleaned_body"] for m in cleaned_messages[:max_messages] if m.get("cleaned_body")]
+    """Send cleaned message bodies to the LLM for theme synthesis.
+
+    The caller decides which messages are analysed; every message passed in
+    is sent, so the caller's count is the analysed count.
+    """
+    bodies = [m["cleaned_body"] for m in cleaned_messages if m.get("cleaned_body")]
     if not bodies:
         return {
             "headline": f"No usable customer messages found for {product_name}.",
@@ -294,9 +381,12 @@ Rules:
 - representative_quote must be a real excerpt from the messages (not fabricated).
 - Order themes by mention_count descending.
 - Maximum 7 themes.
-- Keep headline, so_what, and recommended_action concise (one sentence each)."""
+- Keep headline, so_what, and recommended_action concise (one sentence each).
+- If a focus topic is given, the headline must say what customers say about that topic,
+  or state plainly that none of the messages address it. Do not stretch other feedback to fit it."""
 
-    user_prompt = f"Product: {product_name}\n\nCustomer messages ({len(bodies)} total):\n\n{numbered}"
+    focus = f"\nFocus topic from the question: {topic}" if topic else ""
+    user_prompt = f"Product: {product_name}{focus}\n\nCustomer messages ({len(bodies)} total):\n\n{numbered}"
 
     try:
         client = get_client()
@@ -309,7 +399,7 @@ Rules:
             temperature=0.2,
             max_tokens=1500,
         )
-        raw = resp.choices[0].message.content.strip()
+        raw = (resp.choices[0].message.content or "").strip()
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
         if raw.endswith("```"):

@@ -6,15 +6,20 @@ Owns all Snowflake SQL for the product-feedback pipeline:
   - fetch customer-authored message bodies for those conversations
   - strict vs fallback retrieval strategies
 
+Candidate queries take an explicit, timezone-aware window and the same
+channel / tag / agent filters that ``queries/voc.py`` applies to metrics.
+Product phrases are matched as given; no pass broadens them to a first word.
+
 No business logic lives here — only query building and execution.
 """
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Set
+from datetime import datetime
+from typing import Any, Dict, List, Mapping, Optional, Set
 
 from scout.integrations.snowflake import execute_query_dict
-from scout.sql import autoreply_exclusion
+from scout.sql import agent_filter, autoreply_exclusion, channel_filter, created_at_window, tag_filter
 from scout.taxonomy.tag_ids import TAG_NAME_TO_UUIDS
 
 logger = logging.getLogger("scout.repository.product_feedback")
@@ -54,15 +59,35 @@ def _tag_names_to_uuids(tag_names: Set[str]) -> List[str]:
     return uuids
 
 
+def _safe_phrase(phrase: str) -> str:
+    """Strip characters that would end the literal or act as LIKE wildcards."""
+    return "".join(ch for ch in phrase if ch not in "'\\%_")
+
+
 def _build_alias_predicates(aliases: List[str], column: str) -> str:
     """Build a SQL OR clause matching any alias in a column.
 
     Example output: ``(LOWER(m.BODY) LIKE '%anytime crewneck%' OR LOWER(m.BODY) LIKE '%anytime crew neck%')``
     """
-    if not aliases:
+    safe = [s for s in (_safe_phrase(a) for a in aliases) if s.strip()]
+    if not safe:
         return "FALSE"
-    clauses = [f"LOWER({column}) LIKE '%{a.replace(chr(39), '')}%'" for a in aliases]
+    clauses = [f"LOWER({column}) LIKE '%{a}%'" for a in safe]
     return "(" + " OR ".join(clauses) + ")"
+
+
+def build_scope_filters(filters: Optional[Mapping[str, str]], alias: str = "c") -> str:
+    """Channel, tag, and agent predicates for the candidate queries."""
+    if not filters:
+        return ""
+    clauses: List[str] = []
+    if filters.get("channel"):
+        clauses.append(channel_filter(filters["channel"], alias))
+    if filters.get("tag"):
+        clauses.append(tag_filter(filters["tag"], alias))
+    if filters.get("agent"):
+        clauses.append(agent_filter(filters["agent"], alias))
+    return "\n      ".join(clauses)
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +97,9 @@ def _build_alias_predicates(aliases: List[str], column: str) -> str:
 def fetch_strict_candidates(
     tag_uuids: List[str],
     aliases: List[str],
-    timeframe_days: int,
+    start: datetime,
+    end: datetime,
+    filters: Optional[Mapping[str, str]] = None,
     max_conversations: int = 500,
 ) -> List[Dict[str, Any]]:
     """Strict pass: conversation has a product-feedback tag AND
@@ -101,70 +128,29 @@ def fetch_strict_candidates(
     , LATERAL FLATTEN(input => PARSE_JSON(c.TAGS)) f
     WHERE f.value::STRING IN ({tag_list})
       AND ({body_pred} OR {subj_pred})
-      AND c.CREATED_AT >= DATEADD('day', -{timeframe_days}, CURRENT_TIMESTAMP())
+      {created_at_window(start, end)}
+      {build_scope_filters(filters)}
       {_AUTOREPLY_EXCLUSION}
       {_NOT_DELETED}
     ORDER BY c.CREATED_AT DESC
-    LIMIT {max_conversations}
+    LIMIT {int(max_conversations)}
     """
-    logger.info("Strict candidate query: tag_uuids=%d, aliases=%s, days=%d",
-                len(tag_uuids), aliases, timeframe_days)
-    return execute_query_dict(sql)
-
-
-def fetch_fallback_relaxed_candidates(
-    tag_uuids: List[str],
-    aliases: List[str],
-    timeframe_days: int,
-    max_conversations: int = 500,
-) -> List[Dict[str, Any]]:
-    """Fallback pass 1: product-feedback tag + relaxed alias match.
-
-    Uses broader matching (first keyword of product name) in body/subject.
-    Still requires a product-feedback tag.
-    """
-    if not tag_uuids or not aliases:
-        return []
-
-    tag_list = ", ".join(f"'{u}'" for u in tag_uuids)
-    # Use just the first word of each alias for broader matching
-    broad_aliases = list({a.split()[0] for a in aliases if a.split()})
-    body_pred = _build_alias_predicates(broad_aliases, "m.BODY")
-    subj_pred = _build_alias_predicates(broad_aliases, "c.SUBJECT")
-
-    sql = f"""
-    SELECT DISTINCT
-        c.ID            AS CONVERSATION_ID,
-        c.SUBJECT,
-        c.TAGS,
-        c.CHANNEL,
-        c.CREATED_AT,
-        c.CUSTOMER_EMAIL
-    FROM CONVERSATIONS c
-    JOIN MESSAGES m ON m.CONVERSATION_ID = c.ID
-    , LATERAL FLATTEN(input => PARSE_JSON(c.TAGS)) f
-    WHERE f.value::STRING IN ({tag_list})
-      AND ({body_pred} OR {subj_pred})
-      AND c.CREATED_AT >= DATEADD('day', -{timeframe_days}, CURRENT_TIMESTAMP())
-      {_AUTOREPLY_EXCLUSION}
-      {_NOT_DELETED}
-    ORDER BY c.CREATED_AT DESC
-    LIMIT {max_conversations}
-    """
-    logger.info("Fallback relaxed query: tag_uuids=%d, broad_aliases=%s, days=%d",
-                len(tag_uuids), broad_aliases, timeframe_days)
+    logger.info("Strict candidate query: tag_uuids=%d, aliases=%s, window=%s..%s",
+                len(tag_uuids), aliases, start.isoformat(), end.isoformat())
     return execute_query_dict(sql)
 
 
 def fetch_fallback_body_only_candidates(
     aliases: List[str],
-    timeframe_days: int,
-    max_conversations: int = 300,
+    start: datetime,
+    end: datetime,
+    filters: Optional[Mapping[str, str]] = None,
+    max_conversations: int = 500,
 ) -> List[Dict[str, Any]]:
-    """Fallback pass 2: body/subject mention only (no tag requirement).
+    """Fallback pass: body/subject mention only (no tag requirement).
 
-    Used when tag coverage is weak. Results should be ranked/filtered
-    by the evidence service before synthesis.
+    Used when tag coverage is weak. The product match is the same as the
+    strict pass; only the product-feedback tag requirement is dropped.
     """
     if not aliases:
         return []
@@ -183,14 +169,15 @@ def fetch_fallback_body_only_candidates(
     FROM CONVERSATIONS c
     JOIN MESSAGES m ON m.CONVERSATION_ID = c.ID
     WHERE ({body_pred} OR {subj_pred})
-      AND c.CREATED_AT >= DATEADD('day', -{timeframe_days}, CURRENT_TIMESTAMP())
+      {created_at_window(start, end)}
+      {build_scope_filters(filters)}
       {_AUTOREPLY_EXCLUSION}
       {_NOT_DELETED}
     ORDER BY c.CREATED_AT DESC
-    LIMIT {max_conversations}
+    LIMIT {int(max_conversations)}
     """
-    logger.info("Fallback body-only query: aliases=%s, days=%d",
-                aliases, timeframe_days)
+    logger.info("Fallback body-only query: aliases=%s, window=%s..%s",
+                aliases, start.isoformat(), end.isoformat())
     return execute_query_dict(sql)
 
 

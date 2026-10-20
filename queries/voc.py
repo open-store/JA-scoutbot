@@ -18,7 +18,7 @@ upstream by the product-feedback repository.
 
 from scout.integrations.snowflake import execute_query_dict
 from scout.routing.command_parser import ParsedCommand
-from scout.sql import autoreply_exclusion
+from scout.sql import agent_filter, autoreply_exclusion, channel_filter, tag_filter
 from scout.taxonomy.tag_ids import TAG_ID_TO_NAME
 
 
@@ -52,31 +52,17 @@ def _build_filter_clause(
 
     channel = cmd.filters.get("channel") if cmd.filters else None
     if channel:
-        safe = channel.replace("'", "''")
-        clauses.append(f"AND LOWER(CHANNEL) = '{safe.lower()}'")
+        clauses.append(channel_filter(channel))
         labels.append(f"channel: {channel}")
 
     tag = cmd.filters.get("tag") if cmd.filters else None
     if tag:
-        matching_uuids = [
-            uuid for uuid, name in TAG_ID_TO_NAME.items()
-            if tag.lower() in name.lower()
-        ]
-        if matching_uuids:
-            uuid_list = ", ".join(f"'{u}'" for u in matching_uuids)
-            clauses.append(
-                f"AND EXISTS (SELECT 1 FROM LATERAL FLATTEN(input => PARSE_JSON(TAGS)) ft "
-                f"WHERE ft.value::STRING IN ({uuid_list}))"
-            )
-        else:
-            safe = tag.replace("'", "''")
-            clauses.append(f"AND LOWER(TAGS::STRING) LIKE '%{safe.lower()}%'")
+        clauses.append(tag_filter(tag))
         labels.append(f"tag: {tag}")
 
     agent = cmd.filters.get("agent") if cmd.filters else None
     if agent:
-        safe = agent.replace("'", "''")
-        clauses.append(f"AND LOWER(ASSIGNED_AGENT_ID::STRING) LIKE '%{safe.lower()}%'")
+        clauses.append(agent_filter(agent))
         labels.append(f"agent: {agent}")
 
     return "\n    ".join(clauses), ", ".join(labels) if labels else ""
@@ -109,15 +95,26 @@ def _resolve_tags(tag_rows: list[dict]) -> list[dict]:
     return resolved
 
 
-def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
+def run_voc(
+    cmd: ParsedCommand,
+    conversation_ids: list | None = None,
+    previous_conversation_ids: list | None = None,
+) -> dict:
     """Execute VOC analysis for the given command.
 
     Args:
         cmd: Parsed command containing timeframe, filters, etc.
         conversation_ids: Optional list of conversation IDs to scope the query.
-            When provided (product-filtered queries), ALL aggregate queries
-            (volume, channel, tags, status) are filtered to these IDs.
+            When provided (product-filtered queries), ALL current-period aggregate
+            queries (volume, channel, tags, status) are filtered to these IDs.
             When None, general VOC behaviour applies with auto-reply exclusion.
+        previous_conversation_ids: The previous period's own scope for product
+            queries. Previous-period queries never reuse the current IDs; when
+            this is None on a product query, the previous period is empty.
+
+    For product queries the IDs are the population: the caller's scope was
+    already bounded to each period's window, so the window predicate is not
+    applied a second time.
 
     Returns a dict with all the data needed for formatting.
     The caller (voc_service.py) is responsible for attaching 'product_feedback'
@@ -138,6 +135,14 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
     autoreply_clause = autoreply_exclusion() if not is_product_query else ""
 
     filter_sql, filter_label = _build_filter_clause(cmd, conversation_ids=conversation_ids)
+    prev_filter_sql, _ = _build_filter_clause(cmd, conversation_ids=previous_conversation_ids)
+
+    if is_product_query:
+        window_sql = ""
+        prev_window_sql = ""
+    else:
+        window_sql = f"AND CREATED_AT >= '{start}'\n      AND CREATED_AT < '{end}'"
+        prev_window_sql = f"AND CREATED_AT >= '{prev_start}'\n      AND CREATED_AT < '{prev_end}'"
 
     # --- Current period volume ---
     volume_sql = f"""
@@ -151,8 +156,7 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
         ) AS csat_pct
     FROM FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS
     WHERE _FIVETRAN_DELETED = FALSE
-      AND CREATED_AT >= '{start}'
-      AND CREATED_AT < '{end}'
+      {window_sql}
     {autoreply_clause}
     {filter_sql}
     """
@@ -165,10 +169,9 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
         COUNT(*) AS total_conversations
     FROM FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS
     WHERE _FIVETRAN_DELETED = FALSE
-      AND CREATED_AT >= '{prev_start}'
-      AND CREATED_AT < '{prev_end}'
+      {prev_window_sql}
     {autoreply_clause}
-    {filter_sql}
+    {prev_filter_sql}
     """
     prev_volume = execute_query_dict(prev_volume_sql)
     prev_volume_data = prev_volume[0] if prev_volume else {}
@@ -180,8 +183,7 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
         COUNT(*) AS cnt
     FROM FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS
     WHERE _FIVETRAN_DELETED = FALSE
-      AND CREATED_AT >= '{start}'
-      AND CREATED_AT < '{end}'
+      {window_sql}
     {autoreply_clause}
     {filter_sql}
     GROUP BY CHANNEL
@@ -197,8 +199,7 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
     FROM FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS,
     LATERAL FLATTEN(input => PARSE_JSON(TAGS)) f
     WHERE _FIVETRAN_DELETED = FALSE
-      AND CREATED_AT >= '{start}'
-      AND CREATED_AT < '{end}'
+      {window_sql}
       AND TAGS IS NOT NULL
     {autoreply_clause}
     {filter_sql}
@@ -216,11 +217,10 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
     FROM FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS,
     LATERAL FLATTEN(input => PARSE_JSON(TAGS)) f
     WHERE _FIVETRAN_DELETED = FALSE
-      AND CREATED_AT >= '{prev_start}'
-      AND CREATED_AT < '{prev_end}'
+      {prev_window_sql}
       AND TAGS IS NOT NULL
     {autoreply_clause}
-    {filter_sql}
+    {prev_filter_sql}
     GROUP BY tag_uuid
     ORDER BY cnt DESC
     LIMIT 50
@@ -238,8 +238,7 @@ def run_voc(cmd: ParsedCommand, conversation_ids: list | None = None) -> dict:
         COUNT(*) AS cnt
     FROM FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS
     WHERE _FIVETRAN_DELETED = FALSE
-      AND CREATED_AT >= '{start}'
-      AND CREATED_AT < '{end}'
+      {window_sql}
     {autoreply_clause}
     {filter_sql}
     GROUP BY STATUS

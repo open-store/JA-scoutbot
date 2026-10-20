@@ -2,8 +2,88 @@
 
 from scout.formatting._common import _no_data_message
 
+_RETRIEVAL_LABELS = {
+    "strict": "product named in the ticket, with a product-feedback tag",
+    "fallback_body_only": "product named in the ticket; tickets without a product-feedback tag included",
+    "empty": "no matching tickets",
+}
+
+_MATCH_LABELS = {
+    "catalog_exact": "exact catalog name",
+    "catalog_alias": "catalog alias",
+    "catalog_partial": "partial name, one catalog match",
+    "catalog_family": "catalog family",
+    "alias_list": "Scout alias list (not confirmed in the catalog)",
+    "exact_phrase_unverified": "exact phrase (catalog unavailable)",
+}
+
+
+def _format_unresolved(pf: dict, days: int) -> str:
+    """Disambiguation reply for an ambiguous or unknown product."""
+    query = pf.get("query", "")
+    candidates = pf.get("candidates") or []
+    family = pf.get("family")
+    source = pf.get("catalog_source") or "the product catalog"
+    lines = []
+    if pf.get("status") == "ambiguous":
+        lines.append(f"*:thinking_face: '{query}' matches more than one product. Which one did you mean?*")
+        lines.append("")
+        for name in candidates:
+            lines.append(f"• {name}")
+        lines.append("")
+        example = candidates[0] if candidates else query
+        lines.append(f"Ask again with the full name, for example `/voc L{days} product:\"{example}\"`.")
+        if family:
+            lines.append(f"To cover every {family} style together, use `product:\"{family}\"`.")
+    else:
+        lines.append(f"*:mag: I couldn't find '{query}' in the product catalog.*")
+        lines.append("")
+        if candidates:
+            lines.append("*Closest catalog matches*")
+            for name in candidates:
+                lines.append(f"• {name}")
+            lines.append("")
+        lines.append(
+            "I didn't search support tickets for a broader match, so no other products "
+            "were mixed into the answer. Ask again with the catalog name."
+        )
+    lines.append("")
+    lines.append(f"• *Catalog source:* {source}")
+    return "\n".join(lines)
+
+
+def _product_scope_lines(pf: dict) -> list:
+    lines = []
+    level = pf.get("product_level")
+    name = pf.get("product_name", "")
+    if level == "family":
+        styles = pf.get("styles") or []
+        listed = ", ".join(styles[:6]) + ("…" if len(styles) > 6 else "")
+        lines.append(f"• *Product:* {name} family ({len(styles)} styles: {listed})")
+    elif level == "style" and pf.get("family"):
+        lines.append(f"• *Product:* {name} (style in the {pf['family']} family)")
+    else:
+        lines.append(f"• *Product:* {name}")
+    method = _MATCH_LABELS.get(pf.get("match_method", ""), pf.get("match_method", ""))
+    if method:
+        lines.append(f"• *Matched by:* {method}")
+    seasons = pf.get("seasons") or []
+    if seasons:
+        lines.append(f"• *Catalog seasons:* {', '.join(seasons)}")
+    retrieval = _RETRIEVAL_LABELS.get(pf.get("retrieval_mode", ""))
+    if retrieval:
+        lines.append(f"• *Tickets included:* {retrieval}")
+    if pf.get("topic"):
+        lines.append(f"• *Question focus:* {pf['topic']} (focuses the themes; ticket counts cover all feedback)")
+    return lines
+
+
 def format_voc(data: dict) -> str:
     """Format VOC results for Slack using resolved tag names for themes."""
+    product_feedback = data.get("product_feedback")
+    if product_feedback and product_feedback.get("status") in ("ambiguous", "unknown"):
+        return _format_unresolved(product_feedback, data.get("days", 30))
+
     volume = data.get("volume", {})
     prev_volume = data.get("prev_volume", {})
     by_channel = data.get("by_channel", [])
@@ -17,23 +97,29 @@ def format_voc(data: dict) -> str:
     prev_total = prev_volume.get("TOTAL_CONVERSATIONS", 0)
     csat_pct = volume.get("CSAT_PCT")
     filter_label = data.get("filter_label", "")
-    product_feedback = data.get("product_feedback")
 
-    # When a product filter is active and the new pipeline found conversations,
-    # use the pipeline count as the authoritative total — the subject-line query
-    # may return 0 even when the tag+body pipeline finds real data.
+    # The product scope's conversation count is authoritative for product
+    # queries if the ID-scoped volume query returned nothing.
     if total == 0 and product_feedback and product_feedback.get("total_conversations", 0) > 0:
         total = product_feedback["total_conversations"]
 
     if total == 0:
         filter_note = f" (filtered by {filter_label})" if filter_label else ""
-        return _no_data_message("VOC", timeframe + filter_note, "Richpanel via Snowflake")
+        message = _no_data_message("VOC", timeframe + filter_note, "Richpanel via Snowflake")
+        if product_feedback and product_feedback.get("status") == "ok":
+            notes = [f"_{c}_" for c in product_feedback.get("caveats", []) if "No conversations matched" not in c]
+            if notes:
+                message += "\n\n" + "\n".join(notes)
+        return message
 
-    # Volume change
+    # Volume change. A product query's previous period is its own scope, so
+    # zero previous conversations is a real value.
     vol_change = ""
     if prev_total > 0:
         pct_change = round((total - prev_total) / prev_total * 100, 1)
         vol_change = f" ({'+' if pct_change > 0 else ''}{pct_change}% vs. previous {days} days)"
+    elif product_feedback and product_feedback.get("previous_total_conversations") == 0:
+        vol_change = f" (none in the previous {days} days)"
 
     # Build previous tag lookup for period-over-period comparison
     prev_tag_map = {t["TAG_UUID"]: t["CNT"] for t in prev_tags}
@@ -55,9 +141,12 @@ def format_voc(data: dict) -> str:
     lines.append(f"• *Total conversations:* {total:,}{vol_change}")
     if csat_pct is not None:
         lines.append(f"• *Overall CSAT:* {csat_pct}%")
-    lines.append(f"• *Timeframe:* {timeframe}")
+    tz = product_feedback.get("timezone") if product_feedback else None
+    lines.append(f"• *Timeframe:* {timeframe}" + (f" ({tz})" if tz else ""))
     if filter_label:
         lines.append(f"• *Filter:* {filter_label}")
+    if product_feedback and product_feedback.get("status") == "ok":
+        lines.extend(_product_scope_lines(product_feedback))
     lines.append(f"• *Source:* Richpanel via Snowflake")
     lines.append("")
 
@@ -101,6 +190,13 @@ def format_voc(data: dict) -> str:
             lines.append(f"_{pf_headline}_")
         lines.append("")
         lines.append(f"• *Sample:* {pf_count} customer messages from {pf_convos} product-related tickets")
+        retrieved = product_feedback.get("retrieved_message_count")
+        cleaned = product_feedback.get("cleaned_message_count")
+        if retrieved:
+            lines.append(
+                f"• *Messages:* {retrieved} retrieved, {cleaned} after cleaning "
+                f"(auto-replies, very short messages, duplicates), {pf_count} analysed"
+            )
         lines.append(f"• *Timeframe:* Last {days} complete days")
         lines.append(f"• *Source:* {product_feedback.get('source', 'Richpanel tickets via Snowflake')}")
         lines.append("")
