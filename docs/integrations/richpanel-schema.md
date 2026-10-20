@@ -12,7 +12,7 @@ Database `FIVETRAN_TEST_DATABASE`, schema `RICHPANEL_CONNECTOR`. The connector h
 | `CONVERSATION_NO` | NUMBER | Sequential number |
 | `SUBJECT` | TEXT | Used by `/errors` keyword matching and auto-reply exclusion |
 | `STATUS` | TEXT | For example CLOSED, SNOOZED, OPEN |
-| `ASSIGNEE_ID` | TEXT | Agent id |
+| `ASSIGNEE_ID` | TEXT | Agent UUID. `/voc agent:` matches this ID, not an agent's name; names come from the Richpanel `/users` API |
 | `ORGANIZATION_ID` | TEXT | Tenant id |
 | `CUSTOMER_ID` | TEXT | Joined to message `AUTHOR_ID` for customer-authored text |
 | `CUSTOMER_EMAIL` | TEXT | Customer address. Do not copy values into docs or tickets |

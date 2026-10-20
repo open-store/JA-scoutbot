@@ -60,8 +60,9 @@ def tag_filter(tag: str, alias: str = "") -> str:
 
 
 def agent_filter(agent: str, alias: str = "") -> str:
+    """Match a Richpanel agent ID. ``ASSIGNEE_ID`` holds agent UUIDs, not names."""
     safe = agent.replace("'", "''")
-    return f"AND LOWER({_col(alias, 'ASSIGNED_AGENT_ID')}::STRING) LIKE '%{safe.lower()}%'"
+    return f"AND LOWER({_col(alias, 'ASSIGNEE_ID')}::STRING) LIKE '%{safe.lower()}%'"
 
 
 def created_at_window(start: datetime, end: datetime, column: str = "c.CREATED_AT") -> str:
