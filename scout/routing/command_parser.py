@@ -23,6 +23,9 @@ FILTER_PATTERNS = {
     "product": re.compile(r'product:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
     "agent": re.compile(r'agent:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
     "segment": re.compile(r'segment:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
+    # Product aspect for product VOC synthesis ("fit", "sleeve length").
+    # It focuses the written themes; it does not narrow retrieval or metrics.
+    "topic": re.compile(r'topic:(?:"([^"]+)"|(\S+))', re.IGNORECASE),
 }
 
 def build_pps_command(text: str) -> str:
