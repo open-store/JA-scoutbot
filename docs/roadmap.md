@@ -31,6 +31,7 @@ Router validation, product/timeframe/topic preservation through the keyword fall
 
 - Make `Daily` routable if plain-English "today's CS report" should hit `/daily`.
 - Confirm Scout's Snowflake role can read the product catalog source (`JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE`). Until it can, product names are matched as typed, with a caveat. See [product VOC](architecture/product-voc.md).
+- Turn on order-linked and inferred attribution (`SCOUT_ORDER_LOOKUP=snowflake`) after Scout's role can read `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS` and `FCT_SHOPIFY__ORDER_LINES` and the unverified column names in `scout/repositories/order_repository.py` are confirmed. Confirmed and unresolved attribution work without it.
 
 ### Taxonomy and structure
 

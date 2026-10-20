@@ -38,6 +38,7 @@ Copy `.env.example` to `.env` for local development. Production reads the same n
 | `OPENAI_API_KEY` | for NL routing and product synthesis | Read by the OpenAI SDK. If it is missing, routing uses the keyword fallback |
 | `OPENAI_BASE_URL` | no | Optional SDK base URL. `scout/routing/nl_router.py` does not read it directly; the SDK does |
 | `PORT` | no | Health-check port. Default `8080` |
+| `SCOUT_ORDER_LOOKUP` | no | `snowflake` turns on Shopify order lookups for the order-linked and inferred attribution tiers in product `/voc`. Unset means off. Leave it off until Scout's role can read the order tables and the column names in `scout/repositories/order_repository.py` are confirmed |
 
 ## Names the bot does not read
 
