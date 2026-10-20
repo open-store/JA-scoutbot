@@ -14,6 +14,7 @@ Key notes:
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from scout.integrations.knocommerce import SURVEY_IDS, date_range as _date_range, fqn
 from scout.integrations.snowflake import get_connection
