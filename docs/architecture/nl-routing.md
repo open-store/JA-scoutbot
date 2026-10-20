@@ -6,11 +6,12 @@
 
 1. Slack text arrives. Mention tokens are stripped.
 2. `route_natural_language` calls `gpt-4.1-mini` (`temperature=0`, `max_tokens=200`, `response_format=json_object`).
-3. The model returns JSON. `build_command_from_routing` turns it into a string such as `/VOC L30 product:"anytime crewneck"`.
-4. `execute_scout_command` parses that string and runs the normal query and formatter.
-5. If `confidence` is `low`, Scout prepends a note that it guessed, then still returns the report.
+3. The model JSON is validated, then `_finalise` applies the shared contract below.
+4. `build_command_from_routing` turns the result into a string such as `/VOC L30 product:"Atlas Short" topic:fit`.
+5. `execute_scout_command` parses that string and runs the normal query and formatter.
+6. If `confidence` is `low`, Scout prepends a note that it guessed, then still returns the report.
 
-If the OpenAI call throws, or `OPENAI_API_KEY` is missing, `_keyword_fallback` runs instead. The client is cached on the first successful construction. The SDK also reads `OPENAI_BASE_URL` when that variable is set.
+If the OpenAI call throws, `OPENAI_API_KEY` is missing, or the model output fails validation, `_keyword_fallback` runs instead. It ends in the same `_finalise` step. The client is cached on the first successful construction. The SDK also reads `OPENAI_BASE_URL` when that variable is set.
 
 ## Contract
 
@@ -18,38 +19,39 @@ If the OpenAI call throws, or `OPENAI_API_KEY` is missing, `_keyword_fallback` r
 {
   "command": "VOC",
   "timeframe": "L30",
-  "filters": {"product": "anytime crewneck"},
+  "filters": {"product": "Atlas Short", "topic": "fit"},
   "confidence": "high",
-  "reasoning": "short explanation"
+  "reasoning": "short explanation",
+  "router": "llm"
 }
 ```
 
-Allowed `command` values in the prompt: `CSAT`, `VOC`, `Errors`, `NPS`, `PPS`, `Attribution`, `Returns`, `Reviews`, `Help`.
+`router` is `llm` or `keyword_fallback`.
 
-Allowed `timeframe` values: `L7`, `L30`, `L180`. The prompt tells the model to default to `L30` when the user gives no window. Slash commands are different: `scout.routing.command_parser` defaults to `L7`.
+Validation:
 
-`confidence` is `high`, `medium`, or `low`. Only `low` changes the Slack reply.
+- `command` must be one of `CSAT`, `VOC`, `Errors`, `NPS`, `PPS`, `Attribution`, `Returns`, `Reviews`, `Help` (case-insensitive). Anything else falls back to keywords.
+- `timeframe` must look like `L<days>`. Otherwise the per-command default applies.
+- Only `product`, `segment`, `channel`, `tag`, and `topic` filters are kept. Non-string values are dropped.
+- `confidence` outside `high` / `medium` / `low` becomes `medium`.
 
-Filters the prompt asks for:
+`_finalise`, for both paths:
 
-- `product` on product-specific VOC questions.
-- `segment: returning` on returning-customer PPS questions.
-- `segment: new` on new-customer PPS questions. That runs the same report as `/pps_new`. Acquisition questions stay on `Attribution`.
+- **Timeframe.** An explicit window in the question wins over the routed value: `L45`, "last 180 days", "past 6 months", "two weeks", "this month", "last quarter", "past year". With no window, the default is `L30`, except `Errors` and `Help`, which use `L7`. That matches the model prompt.
+- **Product.** `VOC`, `Returns`, and `Reviews` keep a product named in the question. A product found in the catalog (`taxonomy.products.find_product_mentions`) wins over the model's string, so a model that shortened "Atlas Short" to "atlas" is corrected. When the question names a product-like phrase that is not in the catalog ("the Mystery Pant"), the phrase is kept, and `/voc` answers that it is not in the catalog. Resolved names are canonicalised, which also helps `/returns` and `/reviews` match product titles.
+- **CSAT about a product** becomes product VOC, which reports CSAT for that product's tickets instead of dropping the product.
+- **Topic.** Product VOC keeps the aspect the question asks about (fit, sizing, sleeve length, inseam, waistband, fabric, quality, and similar) as `topic`.
+- Commands that cannot use a product drop `product` and `topic`.
 
-`Daily` is not a routable command.
+The catalog is loaded only when a question could carry a product.
 
 ## Keyword fallback
 
-`_keyword_fallback` checks phrases in this order: new-customer PPS, attribution, returning PPS, NPS, returns, reviews, CSAT, errors, help. Anything else becomes VOC. A new-customer PPS phrase that also matches attribution stays on attribution.
-
-CSAT and the VOC default use `L30` when the text contains "month" or "30", and `L7` otherwise. Attribution, PPS, NPS, returns, and reviews are hardcoded to `L30`. Errors and help use `L7`.
-
-The fallback does not read product names, so a product question answered by the fallback loses the `product` filter.
+`_keyword_fallback` checks phrases in this order: new-customer PPS, attribution, returning PPS, NPS, returns, reviews, CSAT, a named product, errors, help. Anything else becomes VOC at `low` confidence. A new-customer PPS phrase that also matches attribution stays on attribution. "Returning customers" does not count as a returns question. A named product goes to VOC before the error and help keywords, so "how do customers like the Atlas Short" is not a help request.
 
 ## Gaps that are still true
 
-1. **No schema check on model JSON.** The router `json.loads` the content and passes it through. A missing field or an unknown command string is not normalised. `response_format=json_object` only guarantees a JSON object.
-2. **The keyword fallback does not extract a product filter**, and its timeframe rules are the coarse checks above.
-3. **There is no golden-case test suite** for `route_natural_language`, `build_command_from_routing`, or `_keyword_fallback`.
+1. A question that names several products is scoped to the first one, and the reasoning says so.
+2. `Daily` is not routable.
 
-`NPS`, `PPS`, `Attribution`, `Returns`, and `Reviews` are all routable on the live bot. `Daily` is not.
+Golden cases live in `scout/tests/test_nl_routing.py`, including model failure, invalid model output, and the catalog being unavailable.

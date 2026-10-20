@@ -27,16 +27,16 @@ A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`
 
 ### Natural-language quality
 
-- Validate router JSON: allowed commands, allowed timeframes, default missing fields.
-- Teach the keyword fallback to pick up a product name.
-- Add a golden-case test module for the router. There is no `tests/test_nl_routing.py` yet.
+Router validation, product/timeframe/topic preservation through the keyword fallback, and golden cases (`scout/tests/test_nl_routing.py`) are in. See [natural-language routing](architecture/nl-routing.md).
+
 - Make `Daily` routable if plain-English "today's CS report" should hit `/daily`.
+- Confirm Scout's Snowflake role can read the product catalog source (`JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE`). Until it can, product names are matched as typed, with a caveat. See [product VOC](architecture/product-voc.md).
 
 ### Taxonomy and structure
 
 - Tag UUIDs live in `scout/taxonomy/tag_ids.py` (`TAG_ID_TO_NAME` and one `TAG_NAME_TO_UUIDS`). Do not change which tag names sit in which group; that changes VOC output.
 - `scout_bot.py` is the only root Python module. `scout.py` is deleted. Formatters are `scout/formatting/`. Moving the rest of `queries/` under `scout/` is still optional.
-- Product aliases are maintained in `scout/taxonomy/products.py`. A Shopify or CSV catalog is not wired up.
+- Products resolve against a catalog read from Snowflake (`scout/services/product_catalog_service.py`). Explicit aliases stay in `scout/taxonomy/products.py`.
 
 ### Known behavioural gaps (do not "fix" silently)
 
