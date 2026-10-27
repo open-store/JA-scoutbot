@@ -81,8 +81,169 @@
   },
   "metrics": [
     {
+      "metric_id": "returns.period_order_return_rate_l7",
+      "label": "Period order return rate (L7)",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Distinct orders with a return submitted in the window, excluding rejected and deleted returns",
+        "source": "SNOWFLAKE_DATABASE.SNOWFLAKE_SCHEMA.RETURN",
+        "source_status": "verified",
+        "expression": "COUNT(DISTINCT ORDER_EXTERNAL_ID) where CREATED_AT is in the America/New_York window and STATUS is not rejected or deleted"
+      },
+      "denominator": {
+        "description": "Distinct orders placed in the same America/New_York window, excluding replacement types, test tags, voided, and cancelled",
+        "source": "SNOWFLAKE_DATABASE.MAIN_OS.OS_ALL_ORDERS",
+        "source_status": "verified",
+        "expression": "COUNT(DISTINCT SHOP_ORDER_ID). Order-date column is OS_DT; the filter converts CREATED_AT from UTC to America/New_York"
+      },
+      "sql": "100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
+      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes redo_exchange and loop_exchange, test and test-order tags, and voided or cancelled orders. Numerator excludes rejected and deleted returns.",
+      "maturity": "L7: 7 complete America/New_York days ending before today. Not a maturity horizon.",
+      "filters": [
+        "exclude_replacement_order_types",
+        "exclude_test_order_tags",
+        "exclude_voided_and_cancelled",
+        "exclude_rejected_and_deleted_returns"
+      ],
+      "filter_note": "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
+      "enrichment": "The post-purchase aggregate is not used and does not replace Redo outcomes.",
+      "freshness": "Queried when /returns runs. Not a stored snapshot.",
+      "evidence": "Raw return count and unmatched returns for the default. Comparison counts: numerator including rejected and deleted, denominator including replacement and test orders, and denominator including voided and cancelled orders.",
+      "producer": "queries.returns.run_period_rates via scout.returns.period.period_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.period_order_return_rate_l30",
+      "label": "Period order return rate (L30)",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Distinct orders with a return submitted in the window, excluding rejected and deleted returns",
+        "source": "SNOWFLAKE_DATABASE.SNOWFLAKE_SCHEMA.RETURN",
+        "source_status": "verified",
+        "expression": "COUNT(DISTINCT ORDER_EXTERNAL_ID) where CREATED_AT is in the America/New_York window and STATUS is not rejected or deleted"
+      },
+      "denominator": {
+        "description": "Distinct orders placed in the same America/New_York window, excluding replacement types, test tags, voided, and cancelled",
+        "source": "SNOWFLAKE_DATABASE.MAIN_OS.OS_ALL_ORDERS",
+        "source_status": "verified",
+        "expression": "COUNT(DISTINCT SHOP_ORDER_ID). Order-date column is OS_DT; the filter converts CREATED_AT from UTC to America/New_York"
+      },
+      "sql": "100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
+      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes redo_exchange and loop_exchange, test and test-order tags, and voided or cancelled orders. Numerator excludes rejected and deleted returns.",
+      "maturity": "L30: 30 complete America/New_York days ending before today. Not a maturity horizon.",
+      "filters": [
+        "exclude_replacement_order_types",
+        "exclude_test_order_tags",
+        "exclude_voided_and_cancelled",
+        "exclude_rejected_and_deleted_returns"
+      ],
+      "filter_note": "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
+      "enrichment": "The post-purchase aggregate is not used and does not replace Redo outcomes.",
+      "freshness": "Queried when /returns runs. Not a stored snapshot.",
+      "evidence": "Raw return count and unmatched returns for the default. Comparison counts: numerator including rejected and deleted, denominator including replacement and test orders, and denominator including voided and cancelled orders.",
+      "producer": "queries.returns.run_period_rates via scout.returns.period.period_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.period_order_return_rate_l180",
+      "label": "Period order return rate (L180)",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Distinct orders with a return submitted in the window, excluding rejected and deleted returns",
+        "source": "SNOWFLAKE_DATABASE.SNOWFLAKE_SCHEMA.RETURN",
+        "source_status": "verified",
+        "expression": "COUNT(DISTINCT ORDER_EXTERNAL_ID) where CREATED_AT is in the America/New_York window and STATUS is not rejected or deleted"
+      },
+      "denominator": {
+        "description": "Distinct orders placed in the same America/New_York window, excluding replacement types, test tags, voided, and cancelled",
+        "source": "SNOWFLAKE_DATABASE.MAIN_OS.OS_ALL_ORDERS",
+        "source_status": "verified",
+        "expression": "COUNT(DISTINCT SHOP_ORDER_ID). Order-date column is OS_DT; the filter converts CREATED_AT from UTC to America/New_York"
+      },
+      "sql": "100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
+      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes redo_exchange and loop_exchange, test and test-order tags, and voided or cancelled orders. Numerator excludes rejected and deleted returns.",
+      "maturity": "L180: 180 complete America/New_York days ending before today. Not a maturity horizon.",
+      "filters": [
+        "exclude_replacement_order_types",
+        "exclude_test_order_tags",
+        "exclude_voided_and_cancelled",
+        "exclude_rejected_and_deleted_returns"
+      ],
+      "filter_note": "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
+      "enrichment": "The post-purchase aggregate is not used and does not replace Redo outcomes.",
+      "freshness": "Queried when /returns runs. Not a stored snapshot.",
+      "evidence": "Raw return count and unmatched returns for the default. Comparison counts: numerator including rejected and deleted, denominator including replacement and test orders, and denominator including voided and cancelled orders.",
+      "producer": "queries.returns.run_period_rates via scout.returns.period.period_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "returns.exchange_share_of_submitted_returns",
+      "label": "Exchange share of submitted returns",
+      "family": "returns",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Submitted returns settled as an exchange",
+        "source": "SNOWFLAKE_DATABASE.SNOWFLAKE_SCHEMA.RETURN",
+        "source_status": "verified",
+        "expression": null
+      },
+      "denominator": {
+        "description": "Redo returns submitted in the window",
+        "source": "SNOWFLAKE_DATABASE.SNOWFLAKE_SCHEMA.RETURN",
+        "source_status": "verified",
+        "expression": null
+      },
+      "sql": null,
+      "date_basis": "Return CREATED_AT, America/New_York. Not a delivery cohort.",
+      "maturity": "Same complete-day windows as the period order return rate.",
+      "filters": [],
+      "filter_note": "Not computed.",
+      "enrichment": "Not used.",
+      "freshness": "Not queried.",
+      "evidence": "Would be exchanged returns divided by submitted returns.",
+      "producer": "queries.returns.run_period_rates",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [
+        "Redo item outcome is not one column, so exchange share of submitted returns is not computed"
+      ],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
       "metric_id": "returns.item_return_rate",
-      "label": "Item return rate",
+      "label": "Unit cohort item return rate",
       "family": "returns",
       "value_kind": "rate_pct",
       "numerator": {
@@ -129,7 +290,7 @@
     },
     {
       "metric_id": "returns.item_exchange_rate",
-      "label": "Item exchange rate",
+      "label": "Unit cohort item exchange rate",
       "family": "returns",
       "value_kind": "rate_pct",
       "numerator": {
@@ -176,7 +337,7 @@
     },
     {
       "metric_id": "returns.exchange_share_of_returned_units",
-      "label": "Exchange share of returned units",
+      "label": "Unit cohort exchange share of returned units",
       "family": "returns",
       "value_kind": "rate_pct",
       "numerator": {
@@ -223,7 +384,7 @@
     },
     {
       "metric_id": "returns.item_refund_rate",
-      "label": "Item refund rate",
+      "label": "Unit cohort item refund rate",
       "family": "returns",
       "value_kind": "rate_pct",
       "numerator": {

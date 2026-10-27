@@ -2,7 +2,7 @@
 
 This contract defines the CX/VOC metrics once, so that Scout and a future Rocky dashboard tab report the same numbers in the same way. It covers the returns metrics (`returns-metrics/1`) and the `/voc` customer-health scorecard (`customer-health/0.1`).
 
-**Today nothing is validated.** Every metric reports `validation: not_validated`. Every return rate and Redo-based summary is unavailable. The scorecard numbers come from production queries but have not been reconciled.
+**Today nothing is validated.** Every metric reports `validation: not_validated`. The period order return rate is provisional. Unit cohort return rates and Redo reason summaries are unavailable. The scorecard numbers come from production queries but have not been reconciled.
 
 | File | Role |
 |---|---|
@@ -14,6 +14,8 @@ This contract defines the CX/VOC metrics once, so that Scout and a future Rocky 
 
 | `metric_id` | Kind | Numerator ÷ denominator (source) | Date basis | Health weight |
 |---|---|---|---|---|
+| `returns.period_order_return_rate_l{7,30,180}` | `rate_pct` | Default: distinct orders with a Redo return submitted in the window, excluding rejected and deleted, ÷ distinct orders placed on `OS_DT` via America/New_York, excluding replacement types, test tags, voided, and cancelled | Complete ET days. Not a cohort. All channels | — |
+| `returns.exchange_share_of_submitted_returns` | `rate_pct` | Exchanged submitted returns ÷ submitted returns. Unavailable: outcome is not one column | Same windows | — |
 | `returns.item_return_rate` | `rate_pct` | Redo returned units (`ANALYTICS.RETURN_REDO`) ÷ eligible delivered units (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES` + `FCT_SHOPIFY__ORDERS`) | Delivery cohort, ET, mature only | 0.25, validated only |
 | `returns.item_exchange_rate` | `rate_pct` | Redo exchanged units ÷ eligible delivered units | Same | — |
 | `returns.exchange_share_of_returned_units` | `rate_pct` | Redo exchanged units ÷ Redo returned units | Same | — |
@@ -31,7 +33,7 @@ This contract defines the CX/VOC metrics once, so that Scout and a future Rocky 
 | `health.customer_health_score` | `score_0_100` | Weighted normalized components (`customer-health/0.1`, provisional) | Each component's own | — |
 | `health.cross_source_themes` | `themes` | Per-source distinct counts and shares. These are never summed across sources | Each source's own | — |
 
-The four return rates carry their SQL: `100 * SUM(numerator) / NULLIF(SUM(denominator), 0)`, written over the cohort-units columns in [returns data](returns-data.md#metric-contract). The refund-line shares carry theirs too.
+The period order return rate is `100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)`. The four unit cohort rates carry their SQL: `100 * SUM(numerator) / NULLIF(SUM(denominator), 0)`, written over the cohort-units columns in [returns data](returns-data.md#metric-contract). The refund-line shares carry theirs too.
 
 ## Fields on each instance
 

@@ -28,6 +28,7 @@ from scout.contract.spec import (
 )
 from scout.returns.comments import CommentSynthesis
 from scout.returns.metrics import MetricStatus, RatesReport
+from scout.returns.period import PeriodReport
 from scout.returns.reasons import ReasonSummary
 from scout.returns.recommendations import MonitoringView, RankedProduct
 
@@ -102,6 +103,39 @@ def _returns_instances(data: Mapping[str, Any], specs: Mapping[str, MetricSpec])
     out: List[Dict[str, object]] = []
     product = data.get("product_filter")
     applied = {"product": str(product)} if product else {}
+    period = data.get("period_rates")
+    if isinstance(period, PeriodReport):
+        for rate in period.rates:
+            out.append(instance(
+                specs[f"returns.period_order_return_rate_{rate.window.label.lower()}"],
+                availability=_FROM_METRIC_STATUS[rate.status], value=rate.value_pct,
+                numerator=rate.orders_with_return, denominator=rate.orders_placed,
+                window=f"{rate.window.label}: {rate.window.describe()}",
+                reasons=[rate.reason],
+                filters_applied={
+                    "replacement_order_types": "excluded",
+                    "test_order_tags": "excluded",
+                    "voided_and_cancelled": "excluded",
+                    "rejected_and_deleted_returns": "excluded",
+                },
+                evidence={
+                    "return_count": rate.return_count,
+                    "unmatched_returns": rate.unmatched_returns,
+                    "note": period.note,
+                    "alternatives": {
+                        "orders_with_return_including_rejected": rate.orders_with_return_including_rejected,
+                        "return_count_including_rejected": rate.return_count_including_rejected,
+                        "unmatched_including_rejected": rate.unmatched_including_rejected,
+                        "orders_including_replacement_and_test": rate.orders_including_replacement_and_test,
+                        "orders_including_voided_and_cancelled": rate.orders_including_voided_and_cancelled,
+                    },
+                },
+            ))
+        out.append(instance(
+            specs["returns.exchange_share_of_submitted_returns"],
+            availability=UNAVAILABLE, reasons=[period.exchange_share_reason],
+        ))
+
     rates = data.get("rates")
     if isinstance(rates, RatesReport):
         window = rates.window.describe() if rates.window else None

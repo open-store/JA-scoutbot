@@ -31,7 +31,7 @@ from scout.returns.sources import REDO_RETURNS
 from scout.routing.command_parser import parse_command
 from scout.services.health_service import build_health_report
 from scout.tests.health_fixture import patched_sources, source_outputs
-from scout.tests.test_returns_report import _Conn
+from scout.tests.test_returns_report import _Conn, fake_period_query
 
 CONTRACT_FILE = Path(__file__).resolve().parents[2] / "docs" / "contracts" / "cx-voc-contract.v1.json"
 SPECS = {s.metric_id: s for s in all_specs()}
@@ -41,11 +41,7 @@ FIXED_TIME = datetime(2026, 10, 20, 12, 0, tzinfo=timezone.utc)
 @pytest.fixture
 def returns_data(monkeypatch):
     monkeypatch.setattr(returns, "get_connection", lambda: _Conn([]))
-
-    def _no_queries(*args, **kwargs):
-        raise AssertionError("no rate query may run while sources are unverified")
-
-    monkeypatch.setattr(returns, "execute_query_dict", _no_queries)
+    monkeypatch.setattr(returns, "execute_query_dict", fake_period_query)
     return returns.run_returns(30)
 
 
@@ -68,7 +64,7 @@ def test_committed_contract_file_matches_the_code():
 
 def test_metric_ids_are_unique_and_every_kind_has_a_scale():
     ids = [s.metric_id for s in all_specs()]
-    assert len(ids) == len(set(ids)) == 19
+    assert len(ids) == len(set(ids)) == 23
     assert all(s.value_kind in SCALES for s in all_specs())
     assert {s.family for s in all_specs()} == {"returns", "customer_health"}
 
@@ -117,6 +113,21 @@ def test_payload_covers_returns_and_health_without_validating_anything(returns_d
     assert len(doc["metrics"]) == len(SPECS)
     assert {m["status"]["validation"] for m in doc["metrics"]} == {NOT_VALIDATED}
     json.dumps(doc)
+
+
+def test_period_rate_instances_keep_counts_and_leave_exchange_share_unavailable(returns_data):
+    by = _by_id(contract_payload(returns_data, generated_at=FIXED_TIME))
+    l30 = by["returns.period_order_return_rate_l30"]
+    assert l30["status"]["availability"] == "provisional"
+    assert l30["value"] == pytest.approx(10.0)
+    assert (l30["numerator"]["value"], l30["denominator"]["value"]) == (40, 400)
+    assert l30["evidence"]["return_count"] == 45
+    assert l30["evidence"]["unmatched_returns"] == 2
+    assert "Not a cohort rate" in l30["date_basis"]
+    share = by["returns.exchange_share_of_submitted_returns"]
+    assert share["status"]["availability"] == UNAVAILABLE and share["value"] is None
+    for days in (7, 30, 180):
+        assert f"returns.period_order_return_rate_l{days}" in by
 
 
 def test_returns_rates_are_unavailable_with_null_values_and_reasons(returns_data):

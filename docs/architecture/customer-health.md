@@ -24,7 +24,7 @@ Each entry reports its source, population, definition, sample and eligible count
 | Support CSAT | `queries/csat.run_csat` | Tickets rated 4–5 ÷ rated tickets × 100, all channels. Same number as `/csat`; not the `/daily` Richpanel API score | Complete days, America/New_York | Yes |
 | NPS — NPS Survey | `queries/nps.get_nps_scores`, `get_nps_trend` | % promoters (9–10) − % detractors (0–6). NPS Survey and NPS Survey Copy merged | UTC dates, end excluded | Yes |
 | Okendo reviews | `queries/reviews.run_reviews` | Mean stars of approved reviews. A star rating, not CSAT | Last N days to now, UTC | Yes |
-| Returns — item return rate | `queries/returns.run_return_rates` | Redo returned units ÷ eligible delivered Shopify units (returns metric contract). Exchange rate and exchange share are shown, not scored | Mature delivery cohorts | Yes, when validated |
+| Returns — unit cohort item return rate | `queries/returns.run_return_rates` | Redo returned units ÷ eligible delivered Shopify units. This is not the period order return rate. Exchange rate and exchange share are shown, not scored | Mature delivery cohorts | Yes, when validated |
 | Returning Customer PPS | `queries/pps.get_returning_pps` | Recommend NPS within this survey, top reason for coming back, share almost stopped | UTC dates | No |
 | New Customer PPS | `queries/pps.get_new_pps` | Recommend NPS within this survey | UTC dates | No |
 | Attribution | `queries/pps.get_attribution` | Top first-heard channels among New Customer PPS respondents | UTC dates | No |
@@ -44,7 +44,7 @@ Configured in `scout/health/score.py` (`DEFAULT_CONFIG`). Every weight, minimum,
 | NPS (NPS Survey) | 30% | −100 to +100 → 0 to 100 | Higher is better | 30 responses |
 | Support CSAT | 25% | 0% to 100% → 0 to 100 | Higher is better | 30 rated tickets |
 | Okendo rating | 20% | 1★ to 5★ → 0 to 100 | Higher is better | 20 reviews |
-| Item return rate | 25% | 0% to 100% → 100 to 0 | Lower is better | 500 eligible delivered units |
+| Unit cohort item return rate | 25% | 0% to 100% → 100 to 0 | Lower is better | 500 eligible delivered units |
 
 Normalization is linear over each metric's full scale, so a component says where a value sits on its own scale, not whether it beats a target. Exchange metrics are not scored: a higher exchange share is not treated as better or worse sentiment. Only the NPS Survey is scored, because the PPS surveys are different populations.
 

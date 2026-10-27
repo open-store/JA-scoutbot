@@ -344,10 +344,10 @@ def test_general_voc_reply_is_the_health_report_not_the_generic_tag_summary():
     }
     out = format_voc(data)
     assert "*Health score:* " in out and "provisional, customer-health/0.1" in out
-    assert "Item return rate (25%) excluded, not scored as zero" in out
+    assert "Unit cohort item return rate (25%) excluded, not scored as zero" in out
     assert "*Support CSAT:* 91.3% · 412 rated of 4,400 tickets" in out
     assert "*NPS — NPS Survey:* +51.6 · 310 responses" in out
-    assert "*Returns — item return rate:* unavailable" in out
+    assert "*Returns — unit cohort item return rate:* unavailable" in out
     assert "_not scored_" in out
     assert "1. *Bottoms run small in the waist* — tickets 2 of 3 tickets (67%); NPS 1 of 2 responses (50%)" in out
     assert "_What's working_" in out

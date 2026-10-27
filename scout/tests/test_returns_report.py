@@ -58,15 +58,27 @@ class _Conn:
         pass
 
 
+PERIOD_ROWS = [
+    {"LABEL": "L7", "ORDERS_WITH_RETURN": 10, "RETURN_COUNT": 12, "UNMATCHED_RETURNS": 1, "ORDERS_PLACED": 100},
+    {"LABEL": "L30", "ORDERS_WITH_RETURN": 40, "RETURN_COUNT": 45, "UNMATCHED_RETURNS": 2, "ORDERS_PLACED": 400},
+    {"LABEL": "L180", "ORDERS_WITH_RETURN": 90, "RETURN_COUNT": 100, "UNMATCHED_RETURNS": 0, "ORDERS_PLACED": 900},
+]
+
+
+def fake_period_query(sql, params):
+    """Period-rate rows only. Unit cohort rates must not reach this query."""
+    if "COHORT_UNITS" in sql or "eligible_delivered_units" in sql:
+        raise AssertionError("unit cohort rates must not query Snowflake while they are unverified")
+    assert "ORDER_CANCELLED_AT" in sql
+    assert "CONVERT_TIMEZONE('America/New_York'" in sql
+    return PERIOD_ROWS
+
+
 @pytest.fixture
 def export_queries(monkeypatch):
     log: list[str] = []
     monkeypatch.setattr(returns, "get_connection", lambda: _Conn(log))
-
-    def _no_rate_queries(*args, **kwargs):
-        raise AssertionError("rates must not query Snowflake while sources are unverified")
-
-    monkeypatch.setattr(returns, "execute_query_dict", _no_rate_queries)
+    monkeypatch.setattr(returns, "execute_query_dict", fake_period_query)
     return log
 
 
@@ -92,11 +104,29 @@ def test_rates_are_unavailable_with_exact_blockers(export_queries):
     assert "until the Redo table is profiled" not in text
 
 
-def test_report_leads_with_rate_states_and_labels_the_export_honestly(export_queries):
+def test_report_leads_with_the_period_rate_and_labels_the_export_honestly(export_queries):
     text = format_returns(returns.run_returns(30))
-    rates_at = text.index("*Return and exchange rates*")
-    assert rates_at < text.index("*Refund volume*") < text.index("*Refund mix*")
-    for label in ("Item return rate", "Item exchange rate", "Exchange share of returned units", "Item refund rate"):
+    period_at = text.index("*Period order return rate*")
+    unit_at = text.index("*Unit cohort rates*")
+    assert period_at < unit_at < text.index("*Refund volume*") < text.index("*Refund mix*")
+    assert "• *L30" in text and "10.0% (40 orders with a return submitted ÷ 400 orders placed)" in text
+    assert "*Raw returns submitted:* 45" in text
+    assert "*Unmatched returns:* 2" in text
+    assert "Not a cohort rate" in text
+    assert "Order-date column is OS_DT" in text
+    assert "America/New_York" in text
+    assert "no sales-channel column" in text
+    assert "redo_exchange" in text and "loop_exchange" in text
+    assert "rejected and deleted" in text
+    assert "including rejected" not in text
+    assert "with them included" not in text
+    assert "Exchange share of submitted returns:* unavailable" in text
+    for label in (
+        "Unit cohort item return rate",
+        "Unit cohort item exchange rate",
+        "Unit cohort exchange share of returned units",
+        "Unit cohort item refund rate",
+    ):
         assert f"• *{label}:* unavailable" in text
     assert "Not available yet:" in text
     assert "Shopify refund export (`EXPORT_CSX__RETURNS`)" in text
@@ -104,7 +134,9 @@ def test_report_leads_with_rate_states_and_labels_the_export_honestly(export_que
     assert "share of refund lines, not a rate against orders" in text
     assert "*Internal refund notes*" in text and "not customer reasons" in text
     assert "Refund volume is up" in text
-    assert "OS_ALL_ORDERS" not in text
+    period_text = text.split("*Unit cohort rates*")[0]
+    assert "All channels" in period_text
+    assert "sales_channel = online_store" not in period_text
     assert "Notable refund reasons" not in text
     assert "the most returned product this period" not in text
 
@@ -148,9 +180,9 @@ def test_provisional_rates_show_counts_denominators_and_window():
         outcomes=OutcomeBreakdown(returned=1_234, refunded=800, exchanged=311, store_credit=50, open=60, unexplained=13),
     )
     text = format_returns({"total_lines": 1, "total_qty_returned": 1, "rates": report})
-    assert "• *Item return rate:* 12.3% (1,234 of 10,032 eligible delivered units) — _provisional: not yet reconciled against live data_" in text
-    assert "• *Item exchange rate:* 3.1% (311 of 10,032 eligible delivered units)" in text
-    assert "• *Exchange share of returned units:* 25.2% (311 of 1,234 Redo returned units)" in text
+    assert "• *Unit cohort item return rate:* 12.3% (1,234 of 10,032 eligible delivered units) — _provisional: not yet reconciled against live data_" in text
+    assert "• *Unit cohort item exchange rate:* 3.1% (311 of 10,032 eligible delivered units)" in text
+    assert "• *Unit cohort exchange share of returned units:* 25.2% (311 of 1,234 Redo returned units)" in text
     assert "deliveries Aug 21 – Sep 19, 2026 (ET), returns within 30 days of delivery, mature" in text
     assert "13 other or unexplained" in text
     assert "Not available yet" not in text
@@ -162,8 +194,9 @@ def test_formatter_without_rates_still_renders_volume():
     assert "*Refund volume*" in text
 
 
-def test_help_does_not_promise_a_return_rate():
+def test_help_names_the_period_rate_and_keeps_unit_cohort_rates_unavailable():
     from scout.formatting.help import format_help
 
     line = next(l for l in format_help().splitlines() if "/returns" in l)
+    assert "Period order return rate" in line
     assert "not available yet" in line

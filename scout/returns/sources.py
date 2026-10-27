@@ -22,6 +22,7 @@ class SourceStatus(str, Enum):
 class SourceRole(str, Enum):
     AUTHORITATIVE_RETURNS = "authoritative_returns"
     ORDER_DENOMINATOR = "order_denominator"
+    PERIOD_ORDERS = "period_orders"
     ENRICHMENT = "enrichment"
     REFUND_EXPORT = "refund_export"
 
@@ -105,10 +106,27 @@ POST_PURCHASE_ENRICHMENT = ReturnsSource(
     ),
 )
 
+OS_ALL_ORDERS = ReturnsSource(
+    role=SourceRole.PERIOD_ORDERS,
+    label="Orders placed",
+    relation="MAIN_OS.OS_ALL_ORDERS",
+    status=SourceStatus.VERIFIED,
+    evidence=(
+        "Base table read on 2026-10-27: 665,881 rows, one per order. OS_DT is the "
+        "order-date column and equals the UTC date of CREATED_AT on every row. "
+        "Exchange order types on OS_ORDER_STATUS are redo_exchange and loop_exchange only. "
+        "ORDER_CANCELLED_AT is the cancellation timestamp; voided orders are a subset of it. "
+        "There is no test-order column; exact tags test and test order are the test rule. "
+        "There is no sales-channel column. This is the period-rate denominator, "
+        "not the unit-cohort delivered-unit denominator."
+    ),
+)
+
 ALL_SOURCES: tuple[ReturnsSource, ...] = (
     REDO_RETURNS,
     SHOPIFY_ORDER_LINES,
     SHOPIFY_ORDERS,
+    OS_ALL_ORDERS,
     POST_PURCHASE_ENRICHMENT,
     REFUND_EXPORT,
 )

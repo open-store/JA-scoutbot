@@ -58,7 +58,10 @@ def _entry_line(entry: dict) -> List[str]:
         more = f" (+{len(reasons) - 1} more)" if len(reasons) > 1 else ""
         lines = [f"• *{label}:* unavailable — {reasons[0]}{more}"]
         if key == "returns":
-            lines.append("   _Exchange rate and exchange share of returns: unavailable. Not scored as zero._")
+            lines.append(
+                "   _Unit cohort exchange rate and exchange share: unavailable. "
+                "Not the period order return rate. Not scored as zero._"
+            )
         return lines
 
     if key == "support_csat":

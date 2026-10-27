@@ -116,13 +116,14 @@ DEFAULT_CONFIG = HealthScoreConfig(
         ),
         ComponentRule(
             key="returns",
-            label="Item return rate",
+            label="Unit cohort item return rate",
             weight=0.25,
             normalization=Normalization("return rate 0% to 100% → 100 to 0", 100.0, 0.0),
             min_sample=500,
             sample_label="eligible delivered units",
             rationale=(
                 "Product fit and expectation, as Redo returned units over eligible delivered units. "
+                "This is the unit cohort rate, not the period order return rate. "
                 "Only a validated rate counts. Exchange metrics are shown but not scored: a higher "
                 "exchange share is not treated as better or worse."
             ),

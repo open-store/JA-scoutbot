@@ -262,7 +262,7 @@ _RATE_STATUS = {
 
 
 def returns_entry(report: Optional[RatesReport], error: str = "") -> ScorecardEntry:
-    key, label = "returns", "Returns — item return rate"
+    key, label = "returns", "Returns — unit cohort item return rate"
     definition = f"{ITEM_RETURN_RATE.label}: Redo returned units ÷ eligible delivered Shopify units × 100"
     if report is None:
         return unavailable(key, label, RETURNS_SOURCE, "Eligible delivered Shopify units", definition,

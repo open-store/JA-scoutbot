@@ -3,6 +3,7 @@
 from scout.formatting._common import _no_data_message
 from scout.returns.comments import CommentSynthesis
 from scout.returns.metrics import MetricStatus, RatesReport, RateResult
+from scout.returns.period import PeriodRate, PeriodReport
 from scout.returns.reasons import ReasonSummary
 from scout.returns.recommendations import MonitoringView, RankedProduct
 
@@ -25,8 +26,40 @@ def _format_rate(result: RateResult) -> str:
     return line
 
 
+def _format_period_rate(rate: PeriodRate) -> list[str]:
+    if rate.status is MetricStatus.UNAVAILABLE or rate.value_pct is None:
+        lines = [f"• *{rate.window.label}:* unavailable — {rate.reason}"]
+    else:
+        lines = [
+            f"• *{rate.window.label} ({rate.window.describe()}):* {rate.value_pct:.1f}% "
+            f"({rate.orders_with_return:,} orders with a return submitted "
+            f"÷ {rate.orders_placed:,} orders placed)"
+            f" — _provisional: {rate.reason}_"
+        ]
+    raw = "n/a" if rate.return_count is None else f"{rate.return_count:,}"
+    unmatched = "n/a" if rate.unmatched_returns is None else f"{rate.unmatched_returns:,}"
+    lines.append(f"  • *Raw returns submitted:* {raw}")
+    lines.append(f"  • *Unmatched returns:* {unmatched}")
+    return lines
+
+
+def format_period_rates(report: PeriodReport) -> list[str]:
+    """Slack shows the default variant only. Comparison figures stay out of this text."""
+    lines = [
+        "*Period order return rate* (default)",
+        f"_{report.note}_",
+    ]
+    for rate in report.rates:
+        lines += _format_period_rate(rate)
+    lines.append(
+        f"• *Exchange share of submitted returns:* unavailable — {report.exchange_share_reason}"
+    )
+    lines.append("")
+    return lines
+
+
 def format_rates(report: RatesReport) -> list[str]:
-    lines = [f"*Return and exchange rates* (delivery cohorts, {report.scope_label})"]
+    lines = [f"*Unit cohort rates* (not the period order return rate; {report.scope_label})"]
     lines += [_format_rate(r) for r in report.results]
     if report.window is not None:
         lines.append(f"_Cohort: {report.window.describe()}._")
@@ -158,8 +191,9 @@ def format_returns(data: dict) -> str:
     volume_change = data.get("volume_change_pct")
     product_filter = data.get("product_filter")
     rates = data.get("rates")
+    period_rates = data.get("period_rates")
 
-    if total_lines == 0:
+    if total_lines == 0 and not isinstance(period_rates, PeriodReport):
         filter_note = f" (filtered by {product_filter})" if product_filter else ""
         return _no_data_message("Returns", f"{period_start} – {period_end}{filter_note}", "Snowflake")
 
@@ -175,6 +209,12 @@ def format_returns(data: dict) -> str:
         headline = f"*:package: Returns summary{filter_context}.*"
 
     lines = [headline, ""]
+
+    if isinstance(period_rates, PeriodReport):
+        lines += format_period_rates(period_rates)
+        if product_filter:
+            lines.append("_The period rate is all orders. The product filter applies to refund volume only._")
+            lines.append("")
 
     if isinstance(rates, RatesReport):
         lines += format_rates(rates)
@@ -232,8 +272,8 @@ def format_returns(data: dict) -> str:
     if top_products:
         top_prod = top_products[0]["product"]
         lines.append(
-            f"• *Product/Ops:* `{top_prod}` has the most refunded units. Volume follows sales, "
-            "so check its item return rate before acting."
+            f"• *Product/Ops:* `{top_prod}` has the most refunded units. Volume follows sales. "
+            "The period order return rate is not a product rate, and the unit cohort item return rate is not available."
         )
     if cancel_pct > 15:
         lines.append(

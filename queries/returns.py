@@ -1,14 +1,18 @@
-"""`/returns`: refund volume and mix, plus return and exchange rates.
+"""`/returns`: refund volume and mix, plus the period order return rate.
 
 Refund volume and mix read ``ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS``,
 a Shopify refund export dated by refund date. It mixes Redo and non-Redo
 refunds, includes cancellations, and has no open returns, so its shares are
 shares of refund lines, not rates against orders.
 
-Return and exchange rates are Redo units over eligible delivered Shopify units
-for a delivery cohort (``scout.returns.metrics``). They stay unavailable: the
-named order facts are not selectable, item outcome is not one column, and
-cohort maturity is not a single day horizon. ``/returns`` never marks a rate validated.
+The period order return rate (``scout.returns.period``) is returns submitted
+in a window divided by orders placed in that same window. It is not a cohort
+rate. ``/returns`` shows L7, L30, and L180 and never marks a rate validated.
+
+Unit-cohort return and exchange rates (``scout.returns.metrics``) stay
+unavailable: the named order facts are not selectable, item outcome is not
+one column, and cohort maturity is not a single day horizon. They are labeled
+as unit cohort rates so they are not read as the period rate.
 
 Redo reasons, comment themes, and the product monitoring view
 (``scout.returns.reasons``, ``comments``, ``recommendations``) stay
@@ -16,9 +20,12 @@ unavailable until the Redo fields in ``scout.returns.redo_fields`` are
 verified. ``REFUND_NOTE`` is an internal Shopify note, not a customer reason.
 """
 
+from datetime import date
+
 from scout.integrations.snowflake import execute_query_dict, get_connection
 from scout.returns import cohorts, metrics
 from scout.returns.comments import CommentSynthesis, unavailable_comment_synthesis
+from scout.returns.period import PeriodReport, period_query, report_from_rows, standard_windows
 from scout.returns.metrics import (
     ITEM_RETURN_RATE,
     CohortScope,
@@ -35,6 +42,14 @@ from scout.returns.recommendations import MonitoringView, view_label
 
 TABLE = "ANALYTICS.DBT_EXPORTS_OS.EXPORT_CSX__RETURNS"
 RATE_SCOPE_LABEL = "online store, DTC"
+
+
+def run_period_rates(as_of: date | None = None) -> PeriodReport:
+    """L7, L30, and L180 period order return rates. Not a product filter."""
+    windows = standard_windows(as_of)
+    sql, params = period_query(windows)
+    rows = execute_query_dict(sql, params)
+    return report_from_rows(windows, rows)
 
 
 def run_return_rates(days: int, product_filter: str | None = None) -> RatesReport:
@@ -243,6 +258,7 @@ def run_returns(days: int, product_filter: str | None = None) -> dict:
     redo_pct = round(redo_returns / safe_div * 100, 1)
 
     rates = run_return_rates(days, product_filter)
+    period_rates = run_period_rates()
     return {
         **run_return_voice(days, rates),
         "total_lines": total_lines,
@@ -271,4 +287,5 @@ def run_returns(days: int, product_filter: str | None = None) -> dict:
         "qty_change_pct": qty_change_pct,
         "product_filter": product_filter,
         "rates": rates,
+        "period_rates": period_rates,
     }

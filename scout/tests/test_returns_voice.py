@@ -27,7 +27,7 @@ from scout.returns.recommendations import (
 from scout.returns.redo_fields import REDO_FIELDS, missing_fields
 from scout.taxonomy.products import FAMILY, PHRASE, STYLE, alias_only_catalog
 from scout.tests.catalog_fixture import fixture_catalog
-from scout.tests.test_returns_report import _Conn
+from scout.tests.test_returns_report import _Conn, fake_period_query
 
 POP = "Redo returned units, fixture"
 
@@ -37,10 +37,7 @@ def export_queries(monkeypatch):
     log: list[str] = []
     monkeypatch.setattr(returns, "get_connection", lambda: _Conn(log))
 
-    def _no_queries(*args, **kwargs):
-        raise AssertionError("no rate, reason, or comment query may run while Redo is unverified")
-
-    monkeypatch.setattr(returns, "execute_query_dict", _no_queries)
+    monkeypatch.setattr(returns, "execute_query_dict", fake_period_query)
     return log
 
 

@@ -21,10 +21,10 @@ A separate `/kno` or `/survey` command is not needed. Those questions are `/nps`
 
 ### Returns detail
 
-`/returns` reports refund volume and mix from the Shopify refund export. Return and exchange rates, Redo reasons and comments, and products to watch are built on fixtures and show as unavailable.
+`/returns` reports the period order return rate (L7, L30, L180) and refund volume and mix. Unit cohort rates, Redo reasons and comments, and products to watch stay unavailable.
 
 - Profile `ANALYTICS.RETURN_REDO` with `python -m scout.returns.discovery`. Redo is the authority for returns, outcomes, reasons, and comments. See [returns data](architecture/returns-data.md).
-- Return and exchange rates need Redo units over eligible delivered units from `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, joined on Shopify order and line IDs. Both relations are named, not yet verified for Scout's role.
+- Unit cohort rates still need Redo units over eligible delivered units from the named Shopify order facts. `OS_ALL_ORDERS` is order-grain and is not that denominator. The live rate is the period order return rate.
 - Fill the Redo field map in `scout/returns/redo_fields.py` from the profile. Then write the reason and comment query and per-product rates. See [returns reasons](architecture/returns-reasons.md).
 
 ### Customer-health score

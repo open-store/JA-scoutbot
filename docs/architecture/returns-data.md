@@ -41,14 +41,16 @@ The Shopify Admin API is not on the Slack request path. No Shopify credential ex
 
 ## Metric map
 
-All rates are unit-weighted ratios of summed counts, times 100, computed once. A ratio with a missing source or a zero denominator is unavailable. A verified zero numerator over a positive denominator is 0%.
+The period order return rate is distinct orders with a return submitted in the window divided by distinct orders placed in that window. Unit cohort rates are unit-weighted ratios of summed counts, times 100, computed once. A ratio with a missing source or a zero denominator is unavailable. A verified zero numerator over a positive denominator is 0%. A period rate can exceed 100% because the numerator is not limited to orders placed in the window.
 
 | Metric | Numerator | Denominator | Date basis | Status |
 |---|---|---|---|---|
-| Item return rate | Redo returned units that qualify. The definition is pending the Redo status values | Eligible delivered Shopify units, same scope | Delivery cohort | Unavailable: Redo schema and order-line delivery columns unverified |
-| Item exchange rate | Redo exchanged units | Same eligible delivered units | Delivery cohort | Unavailable: same |
-| Exchange share of returned units | Redo exchanged units | Redo returned units, same population | Delivery cohort | Unavailable: Redo schema unverified |
-| Item refund rate | Redo refunded units | Eligible delivered units | Delivery cohort | Unavailable: same |
+| Period order return rate | Distinct orders with a Redo return submitted in the window (`RETURN.CREATED_AT`, America/New_York), excluding rejected and deleted. Default only | Distinct orders placed in the same window. Order-date column is `OS_DT`; the filter converts order `CREATED_AT` from UTC to America/New_York. Default excludes `redo_exchange`, `loop_exchange`, `test` / `test order` tags, voided, and cancelled | Complete days, L7, L30, L180. Not a cohort. All channels | Wired as the default. Provisional. Comparisons are not in Slack. See [decisions](decisions.md) |
+| Exchange share of submitted returns | Redo exchanged returns | Submitted returns in the same window | Same windows | Unavailable: item outcome is not one column |
+| Unit cohort item return rate | Redo returned units that qualify | Eligible delivered Shopify units, same scope | Delivery cohort | Unavailable. Not the period rate. Order-line delivery columns are not the denominator |
+| Unit cohort item exchange rate | Redo exchanged units | Same eligible delivered units | Delivery cohort | Unavailable. Not the period rate |
+| Unit cohort exchange share of returned units | Redo exchanged units | Redo returned units, same population | Delivery cohort | Unavailable. Not exchange share of submitted returns |
+| Unit cohort item refund rate | Redo refunded units | Eligible delivered units | Delivery cohort | Unavailable. Not the period rate |
 | Refund volume and mix | Export lines and units | Share of export lines, not a rate | Refund date (ET) | Live |
 
 ## Metric contract

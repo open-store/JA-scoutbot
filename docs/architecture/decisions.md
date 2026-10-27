@@ -34,7 +34,30 @@ A row can have more than one flag. Cancellation wins, then exchange, then straig
 
 The export is a Shopify refund export, not the Redo returns table. Its shares are shares of refund lines, and `/returns` labels them that way.
 
-Return and exchange rates use Redo units over eligible delivered Shopify units for a delivery cohort. Exchange share of returned units uses Redo returned units as its denominator and is labelled separately from the item exchange rate. Until the sources are verified, `/returns` shows each rate as unavailable and names what it is waiting on. Sources, lineage, the metric contract, and the statuses are in [returns data](returns-data.md).
+## Period order return rate
+
+Yankho's choice, 2026-10-27: drop the delivered-unit denominator. The return rate is a period rate, not a cohort rate. Returns submitted in the window can come from orders placed earlier.
+
+`/returns` shows one default, labeled as the default until the open choices are settled. Comparison figures are not in Slack.
+
+| Piece | Default |
+|---|---|
+| Numerator | Distinct orders with at least one Redo `RETURN` whose `CREATED_AT` falls in the window, excluding status `rejected` or `deleted`. There is no submitted-at column. `CREATED_AT` is `TIMESTAMP_TZ`, converted to `America/New_York`. |
+| Raw return count | Count of those default `RETURN` rows, labeled separately. It is not the rate. |
+| Unmatched returns | Default returns whose order id is not in `OS_ALL_ORDERS`. They stay in the numerator. |
+| Denominator | Distinct `SHOP_ORDER_ID` in `MAIN_OS.OS_ALL_ORDERS` placed in the same window. The order-date column is `OS_DT` (the UTC date of order `CREATED_AT`). The window converts that `CREATED_AT` from UTC to `America/New_York`. |
+| Excluded order types | `OS_ORDER_STATUS` in `redo_exchange` or `loop_exchange`. Those are the only exchange or replacement values on that column. |
+| Test orders | Tags that are exactly `test` or `test order`. There is no test-order column. Experiment tags are not treated as test orders. |
+| Voided and cancelled | Excluded in the default (`OS_ORDER_STATUS = 'voided'` or `ORDER_CANCELLED_AT` is not null). Every voided order is also cancelled. |
+| Channel | All channels. `OS_ALL_ORDERS` has no sales-channel column. |
+| Windows | `L7`, `L30`, and `L180`: that many complete days in `America/New_York`, ending before today. The same bounds are used on both sides. |
+| Exchange share of submitted returns | Unavailable. Redo item outcome is not one column. |
+
+The comparisons kept out of Slack are: denominator with replacement and test orders included; denominator with voided and cancelled orders included; numerator with rejected and deleted returns included.
+
+`/returns` shows the default as provisional. It does not mark it validated.
+
+Unit cohort rates stay unavailable and are labeled as unit cohort rates so they are not read as this period rate. `OS_ALL_ORDERS` is order-grain and its quantity column is empty, so it is not that denominator. Sources and the unit-cohort contract remain in [returns data](returns-data.md).
 
 ## NPS
 
@@ -61,8 +84,9 @@ General `/voc` shows a provisional composite, version `customer-health/0.1`. It 
 | Slash parser (`ParsedCommand`) | Complete days ending at midnight `America/New_York` |
 | `/nps`, `/pps`, and `/pps_new` | UTC now minus N days, as dates |
 | `/reviews` | `datetime.utcnow()` minus N days |
-| `/returns` | `CURRENT_DATE()` in Snowflake, minus N days |
-| `/voc` health report | Each scorecard entry keeps its source's window above. Return rates use mature delivery cohorts |
+| `/returns` refund volume | `CURRENT_DATE()` in Snowflake, minus N days |
+| `/returns` period order return rate | Complete days in `America/New_York` for L7, L30, and L180. Not a delivery cohort |
+| `/voc` health report | Each scorecard entry keeps its source's window above. The scored returns component is the unit cohort item return rate, which is unavailable |
 | `/daily` | Today in `America/New_York` |
 
 Aligning these would change reported numbers, so it is tracked separately and not part of a docs-only change.

@@ -27,7 +27,17 @@ from scout.returns.metrics import (
     RATE_DEFINITIONS,
     source_blockers,
 )
+from scout.returns.period import (
+    EXCHANGE_SHARE_REASON,
+    ORDER_DATE_COLUMN,
+    ORDERS_SOURCE_LABEL,
+    PERIOD_LENGTHS,
+    PERIOD_NOTE,
+    RETURNS_SOURCE_LABEL,
+    SUBMITTED_AT_COLUMN,
+)
 from scout.returns.sources import (
+    OS_ALL_ORDERS,
     POST_PURCHASE_ENRICHMENT,
     REDO_RETURNS,
     REFUND_EXPORT,
@@ -162,6 +172,77 @@ def _delivered_quantity(measure: str) -> Quantity:
     return Quantity(COHORT_UNITS_MEASURES[measure],
                     f"{SHOPIFY_ORDER_LINES.relation} joined to {SHOPIFY_ORDERS.relation}",
                     SHOPIFY_ORDER_LINES.status.value, f"SUM({measure})")
+
+
+def _period_rate_specs() -> Tuple[MetricSpec, ...]:
+    """Yankho's period rate. A return in the window may be for an earlier order."""
+    numerator = Quantity(
+        "Distinct orders with a return submitted in the window, excluding rejected and deleted returns",
+        RETURNS_SOURCE_LABEL,
+        SOURCE_VERIFIED,
+        f"COUNT(DISTINCT ORDER_EXTERNAL_ID) where {SUBMITTED_AT_COLUMN} is in the America/New_York window and STATUS is not rejected or deleted",
+    )
+    denominator = Quantity(
+        "Distinct orders placed in the same America/New_York window, excluding replacement types, test tags, voided, and cancelled",
+        ORDERS_SOURCE_LABEL,
+        OS_ALL_ORDERS.status.value,
+        f"COUNT(DISTINCT SHOP_ORDER_ID). Order-date column is {ORDER_DATE_COLUMN}; the filter converts CREATED_AT from UTC to America/New_York",
+    )
+    specs = []
+    for days in PERIOD_LENGTHS:
+        specs.append(MetricSpec(
+            metric_id=f"returns.period_order_return_rate_l{days}",
+            label=f"Period order return rate (L{days})",
+            family="returns",
+            value_kind=RATE_PCT,
+            numerator=numerator,
+            denominator=denominator,
+            sql="100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
+            date_basis=(
+                f"Return {SUBMITTED_AT_COLUMN} converted to America/New_York; order {ORDER_DATE_COLUMN}. "
+                f"{PERIOD_NOTE}"
+            ),
+            maturity=f"L{days}: {days} complete America/New_York days ending before today. Not a maturity horizon.",
+            filters=(
+                "exclude_replacement_order_types",
+                "exclude_test_order_tags",
+                "exclude_voided_and_cancelled",
+                "exclude_rejected_and_deleted_returns",
+            ),
+            filter_note=(
+                "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly "
+                "test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not "
+                "rejected or deleted. No sales-channel column, so this is all channels. "
+                "Comparison figures are not shown in Slack."
+            ),
+            enrichment="The post-purchase aggregate is not used and does not replace Redo outcomes.",
+            freshness="Queried when /returns runs. Not a stored snapshot.",
+            evidence=(
+                "Raw return count and unmatched returns for the default. Comparison counts: numerator "
+                "including rejected and deleted, denominator including replacement and test orders, "
+                "and denominator including voided and cancelled orders."
+            ),
+            producer="queries.returns.run_period_rates via scout.returns.period.period_query",
+        ))
+    specs.append(MetricSpec(
+        metric_id="returns.exchange_share_of_submitted_returns",
+        label="Exchange share of submitted returns",
+        family="returns",
+        value_kind=RATE_PCT,
+        numerator=Quantity("Submitted returns settled as an exchange", RETURNS_SOURCE_LABEL, REDO_RETURNS.status.value),
+        denominator=Quantity("Redo returns submitted in the window", RETURNS_SOURCE_LABEL, REDO_RETURNS.status.value),
+        sql=None,
+        date_basis=f"Return {SUBMITTED_AT_COLUMN}, America/New_York. Not a delivery cohort.",
+        maturity="Same complete-day windows as the period order return rate.",
+        filters=(),
+        filter_note="Not computed.",
+        enrichment="Not used.",
+        freshness="Not queried.",
+        evidence="Would be exchanged returns divided by submitted returns.",
+        producer="queries.returns.run_period_rates",
+        blockers=(EXCHANGE_SHARE_REASON,),
+    ))
+    return tuple(specs)
 
 
 def _returns_rate_specs() -> Tuple[MetricSpec, ...]:
@@ -388,7 +469,13 @@ def _health_specs() -> Tuple[MetricSpec, ...]:
 
 
 def all_specs() -> Tuple[MetricSpec, ...]:
-    return _returns_rate_specs() + _refund_export_specs() + _returns_voice_specs() + _health_specs()
+    return (
+        _period_rate_specs()
+        + _returns_rate_specs()
+        + _refund_export_specs()
+        + _returns_voice_specs()
+        + _health_specs()
+    )
 
 
 def spec_document() -> Dict[str, object]:

@@ -10,7 +10,8 @@ status from the summed counts; it never averages row-level rates.
 The cohort-units relation is a contract here, not a warehouse object. Its SQL
 would join Redo items to Shopify order lines. It stays unset: the named order
 facts are not selectable, item outcome is not one column, and cohort maturity
-is not a single day horizon. Every rate therefore stays unavailable.
+is not a single day horizon. These unit-cohort rates therefore stay
+unavailable. They are not the period order return rate in ``scout.returns.period``.
 """
 
 from __future__ import annotations
@@ -74,7 +75,7 @@ class RateDefinition:
 
 ITEM_RETURN_RATE = RateDefinition(
     metric_id="item_return_rate",
-    label="Item return rate",
+    label="Unit cohort item return rate",
     numerator="redo_returned_units",
     denominator="eligible_delivered_units",
     numerator_role=SourceRole.AUTHORITATIVE_RETURNS,
@@ -83,7 +84,7 @@ ITEM_RETURN_RATE = RateDefinition(
 )
 ITEM_EXCHANGE_RATE = RateDefinition(
     metric_id="item_exchange_rate",
-    label="Item exchange rate",
+    label="Unit cohort item exchange rate",
     numerator="redo_exchanged_units",
     denominator="eligible_delivered_units",
     numerator_role=SourceRole.AUTHORITATIVE_RETURNS,
@@ -92,7 +93,7 @@ ITEM_EXCHANGE_RATE = RateDefinition(
 )
 EXCHANGE_SHARE_OF_RETURNS = RateDefinition(
     metric_id="exchange_share_of_returned_units",
-    label="Exchange share of returned units",
+    label="Unit cohort exchange share of returned units",
     numerator="redo_exchanged_units",
     denominator="redo_returned_units",
     numerator_role=SourceRole.AUTHORITATIVE_RETURNS,
@@ -101,7 +102,7 @@ EXCHANGE_SHARE_OF_RETURNS = RateDefinition(
 )
 ITEM_REFUND_RATE = RateDefinition(
     metric_id="item_refund_rate",
-    label="Item refund rate",
+    label="Unit cohort item refund rate",
     numerator="redo_refunded_units",
     denominator="eligible_delivered_units",
     numerator_role=SourceRole.AUTHORITATIVE_RETURNS,
