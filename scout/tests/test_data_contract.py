@@ -27,6 +27,7 @@ from scout.contract.spec import (
 )
 from scout.health.score import DEFAULT_CONFIG
 from scout.returns.metrics import COHORT_UNITS_MEASURES, RATE_DEFINITIONS
+from scout.returns.sources import REDO_RETURNS
 from scout.routing.command_parser import parse_command
 from scout.services.health_service import build_health_report
 from scout.tests.health_fixture import patched_sources, source_outputs
@@ -77,13 +78,14 @@ def test_returns_rate_specs_mirror_the_returns_contract():
         s = SPECS[f"returns.{d.metric_id}"]
         assert s.sql == d.sql and s.value_kind == RATE_PCT
         assert s.numerator is not None and s.numerator.expression == f"SUM({d.numerator})"
-        assert s.numerator.source == "ANALYTICS.RETURN_REDO" and s.numerator.source_status == "named_unverified"
+        assert s.numerator.source == REDO_RETURNS.relation and s.numerator.source_status == REDO_RETURNS.status.value
         assert s.denominator is not None and s.denominator.description == COHORT_UNITS_MEASURES[d.denominator]
     share = SPECS["returns.exchange_share_of_returned_units"]
-    assert share.denominator is not None and share.denominator.source == "ANALYTICS.RETURN_REDO"
+    assert share.denominator is not None and share.denominator.source == REDO_RETURNS.relation
     rate = SPECS["returns.item_exchange_rate"]
     assert rate.denominator is not None and "FCT_SHOPIFY__ORDER_LINES" in rate.denominator.source
-    assert any("not yet read" in b for b in SPECS["returns.item_return_rate"].blockers)
+    assert any("not a single day horizon" in b for b in SPECS["returns.item_return_rate"].blockers)
+    assert any("not built" in b for b in SPECS["returns.item_return_rate"].blockers)
 
 
 def test_health_weights_come_from_the_score_config():
@@ -122,7 +124,8 @@ def test_returns_rates_are_unavailable_with_null_values_and_reasons(returns_data
     for d in RATE_DEFINITIONS:
         m = by[f"returns.{d.metric_id}"]
         assert m["status"]["availability"] == UNAVAILABLE and m["value"] is None
-        assert any("ANALYTICS.RETURN_REDO" in r for r in m["status"]["reasons"])
+        assert any("FCT_SHOPIFY__ORDER_LINES" in r for r in m["status"]["reasons"])
+        assert any("not a single day horizon" in r for r in m["status"]["reasons"])
         assert m["enrichment"]["coverage"] == {"status": "not_built"}
         assert m["denominator"]["value"] is None
     for key in ("returns.reason_share", "returns.comment_themes", "returns.products_to_watch"):

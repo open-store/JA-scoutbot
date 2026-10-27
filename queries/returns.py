@@ -6,9 +6,9 @@ refunds, includes cancellations, and has no open returns, so its shares are
 shares of refund lines, not rates against orders.
 
 Return and exchange rates are Redo units over eligible delivered Shopify units
-for a delivery cohort (``scout.returns.metrics``). They stay unavailable until
-``ANALYTICS.RETURN_REDO`` and the Shopify order lines are verified and the
-cohort maturity horizon is known. ``/returns`` never marks a rate validated.
+for a delivery cohort (``scout.returns.metrics``). They stay unavailable: the
+named order facts are not selectable, item outcome is not one column, and
+cohort maturity is not a single day horizon. ``/returns`` never marks a rate validated.
 
 Redo reasons, comment themes, and the product monitoring view
 (``scout.returns.reasons``, ``comments``, ``recommendations``) stay
@@ -42,10 +42,10 @@ def run_return_rates(days: int, product_filter: str | None = None) -> RatesRepor
     blockers = list(dict.fromkeys(source_blockers().values()))
     maturity = cohorts.MATURITY_DAYS
     if maturity is None:
-        blockers.append("cohort maturity rule not yet confirmed from `SHOPIFY_AGG_POST_PURCHASE`")
+        blockers.append("cohort maturity is not a single day horizon in `SHOPIFY_AGG_POST_PURCHASE`")
     relation = metrics.COHORT_UNITS_RELATION
     if relation is None:
-        blockers.append("the Redo-to-Shopify join is not built until the Redo table is profiled")
+        blockers.append("the Redo-to-Shopify cohort join is not built; order-line delivery columns are not selectable and item outcome is not one column")
     if product_filter:
         blockers.append("product-level rates need SKUs resolved from the catalog")
 

@@ -148,8 +148,8 @@ _FIVETRAN_FRESHNESS = "Latest _FIVETRAN_SYNCED on the source table; stale after 
 def _rate_blockers() -> Tuple[str, ...]:
     out = list(dict.fromkeys(source_blockers().values()))
     if cohorts.MATURITY_DAYS is None:
-        out.append("cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE")
-    out.append("cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled")
+        out.append("cohort maturity is not a single day horizon in SHOPIFY_AGG_POST_PURCHASE")
+    out.append("cohort-units relation not built; order-line delivery columns are not selectable and item outcome is not one column")
     return tuple(out)
 
 
@@ -166,7 +166,7 @@ def _delivered_quantity(measure: str) -> Quantity:
 
 def _returns_rate_specs() -> Tuple[MetricSpec, ...]:
     maturity_days = cohorts.MATURITY_DAYS
-    horizon = f"{maturity_days} days" if maturity_days else "unset until the enrichment model's maturity rule is read"
+    horizon = f"{maturity_days} days" if maturity_days else "unset; IS_COHORT_MATURE is not a single day horizon"
     specs = []
     for d in RATE_DEFINITIONS:
         denominator = (_delivered_quantity(d.denominator) if d.denominator_role is SourceRole.ORDER_DENOMINATOR
@@ -234,13 +234,13 @@ def _refund_export_specs() -> Tuple[MetricSpec, ...]:
     return tuple(specs)
 
 
-_REDO_FIELD_BLOCKER = "Redo reason and comment fields unverified (scout/returns/redo_fields.py)"
+_REDO_FIELD_BLOCKER = "Redo reason and comment query is not built; outcome and settled_at are still unverified"
 
 
 def _returns_voice_specs() -> Tuple[MetricSpec, ...]:
     redo = REDO_RETURNS.relation or "Redo"
     status = REDO_RETURNS.status.value
-    window = "Redo returns requested in the window (requested_at, unverified)"
+    window = "Redo returns requested in the window (RETURN.CREATED_AT)"
     return (
         MetricSpec(
             metric_id="returns.reason_share", label="Return reasons (share of returned units)",

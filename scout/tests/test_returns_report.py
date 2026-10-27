@@ -86,10 +86,10 @@ def test_rates_are_unavailable_with_exact_blockers(export_queries):
     assert report.window is None
     assert all(r.status is MetricStatus.UNAVAILABLE and r.value_pct is None for r in report.results)
     text = " ".join(report.blockers)
-    assert "`ANALYTICS.RETURN_REDO`" in text
-    assert "`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`" in text
-    assert "cohort maturity rule not yet confirmed" in text
-    assert "Redo-to-Shopify join is not built until the Redo table is profiled" in text
+    assert "FCT_SHOPIFY__ORDER_LINES" in text
+    assert "not a single day horizon" in text
+    assert "cohort join is not built" in text
+    assert "until the Redo table is profiled" not in text
 
 
 def test_report_leads_with_rate_states_and_labels_the_export_honestly(export_queries):

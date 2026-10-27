@@ -50,28 +50,35 @@ def _verified_fields():
 
 # ── Redo field map ───────────────────────────────────────────────
 
-def test_every_redo_field_is_unverified_with_no_guessed_column():
+def test_profiled_redo_fields_name_a_column_and_two_stay_open():
+    open_fields = {"outcome", "settled_at"}
     for field in REDO_FIELDS.values():
-        assert field.verified is False
-        assert field.column is None
-        assert not field.usable
+        if field.name in open_fields:
+            assert field.verified is False and field.column is None and not field.usable
+        else:
+            assert field.usable and field.relation in {"RETURN", "RETURN_ITEM", "RETURN_ITEM_REASON", "RETURN_NOTE"}
+    assert REDO_FIELDS["primary_reason"].predicate == "INDEX = 0"
+    assert REDO_FIELDS["secondary_reason"].predicate == "INDEX = 1"
+    assert REDO_FIELDS["shopify_order_id"].column == "ORDER_EXTERNAL_ID"
+    assert REDO_FIELDS["received_at"].column == "SHIPMENT_DELIVERED_AT"
+    assert missing_fields(["outcome", "settled_at"]) == ["outcome", "settled_at"]
 
 
 def test_missing_fields_checks_the_map():
-    assert missing_fields(["primary_reason"]) == ["primary_reason"]
+    assert missing_fields(["outcome"]) == ["outcome"]
+    assert missing_fields(["primary_reason"]) == []
     assert missing_fields(["primary_reason", "customer_comment"], _verified_fields()) == []
     with pytest.raises(KeyError):
         missing_fields(["return_reason_code"])
 
 
-def test_reason_and_comment_paths_are_unavailable_until_fields_are_verified():
-    reasons = unavailable_reason_summary(POP)
-    assert reasons is not None and reasons.status is MetricStatus.UNAVAILABLE
-    assert "`ANALYTICS.RETURN_REDO`" in reasons.reason and "primary_reason" in reasons.reason
-    comment = unavailable_comment_synthesis(POP)
-    assert comment is not None and "customer_comment" in comment.reason
-    assert unavailable_reason_summary(POP, _verified_fields()) is None
-    assert unavailable_comment_synthesis(POP, _verified_fields()) is None
+def test_reason_and_comment_fields_no_longer_block_the_summary_helper():
+    assert unavailable_reason_summary(POP) is None
+    assert unavailable_comment_synthesis(POP) is None
+    cleared = dict(REDO_FIELDS)
+    cleared["primary_reason"] = replace(REDO_FIELDS["primary_reason"], column=None, verified=False)
+    blocked = unavailable_reason_summary(POP, cleared)
+    assert blocked is not None and "primary_reason" in blocked.reason
 
 
 # ── Structured reasons ───────────────────────────────────────────
@@ -354,8 +361,8 @@ def test_returns_report_shows_voice_sections_as_unavailable(export_queries):
     text = format_returns(data)
     voice = text.index("*Customer reasons and products to watch*")
     assert voice < text.index("*Internal refund notes*")
-    assert "• *Redo return reasons:* unavailable — Redo fields not yet verified in `ANALYTICS.RETURN_REDO`" in text
-    assert "• *Customer return comments:* unavailable" in text
+    assert "• *Redo return reasons:* unavailable — the Redo reason query is not built yet" in text
+    assert "• *Customer return comments:* unavailable — the Redo comment query is not built yet" in text
     assert "• *Products to watch:* unavailable" in text
     assert "excluded from recommendations: Jetsetter Tech Pants" in text
     assert "validated" not in text.lower().replace("not yet verified", "")

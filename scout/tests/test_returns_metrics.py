@@ -179,10 +179,11 @@ def test_unit_counts_from_row_keeps_missing_measures_missing():
     assert counts.redo_refunded_units is None
 
 
-def test_source_blockers_reflect_unverified_redo_and_orders():
+def test_source_blockers_leave_profiled_redo_and_block_order_facts():
     blocked = source_blockers()
-    assert "ANALYTICS.RETURN_REDO" in blocked[SourceRole.AUTHORITATIVE_RETURNS]
+    assert SourceRole.AUTHORITATIVE_RETURNS not in blocked
     assert "FCT_SHOPIFY__ORDER_LINES" in blocked[SourceRole.ORDER_DENOMINATOR]
+    assert "FCT_SHOPIFY__ORDERS" in blocked[SourceRole.ORDER_DENOMINATOR]
 
     verified = tuple(
         ReturnsSource(s.role, s.label, s.relation or "DB.SCHEMA.T", SourceStatus.VERIFIED, s.evidence)
@@ -226,7 +227,7 @@ def test_today_is_the_new_york_date():
     assert cohorts.today_et(late_utc) == date(2026, 10, 20)
 
 
-def test_maturity_horizon_is_unknown_until_read_from_the_model():
+def test_maturity_horizon_stays_unset_because_the_flag_is_not_one_cutoff():
     assert cohorts.MATURITY_DAYS is None
 
 

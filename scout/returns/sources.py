@@ -55,12 +55,12 @@ REDO_RETURNS = ReturnsSource(
     role=SourceRole.AUTHORITATIVE_RETURNS,
     label="Redo returns",
     relation="ANALYTICS.RETURN_REDO",
-    status=SourceStatus.NAMED_UNVERIFIED,
+    status=SourceStatus.VERIFIED,
     evidence=(
-        "Authoritative for return records and outcomes, named by the business "
-        "owner. Two-part name: a RETURN_REDO schema in ANALYTICS or a "
-        "RETURN_REDO table. Level, casing, grain, and columns have not been "
-        "read from Snowflake metadata."
+        "Schema, not a table named RETURN_REDO. Read on 2026-10-27: 48 base "
+        "tables. Return grain is RETURN (15,796 rows) and item grain is "
+        "RETURN_ITEM (26,205 rows). Columns are scout/returns/redo_fields.py. "
+        "Item outcome is not one column, and no column is a settled-at timestamp."
     ),
 )
 
@@ -70,10 +70,11 @@ SHOPIFY_ORDER_LINES = ReturnsSource(
     relation="JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES",
     status=SourceStatus.NAMED_UNVERIFIED,
     evidence=(
-        "Read by the Rocky dashboard under its own service role, with "
-        "is_gwp_line and variant_title_imd. Scout's role access, delivery "
-        "dates, and unit columns are unverified. `OS_ALL_ORDERS` was only "
-        "shorthand."
+        "Named from the Rocky dashboard, which reads is_gwp_line and "
+        "variant_title_imd. On 2026-10-27 Scout's role got Snowflake errno "
+        "2003 on this relation, and that database has no DBT schema. "
+        "A selectable SHOPIFY.FCT_SHOPIFY__ORDER_LINES copy has no is_gwp_line, "
+        "variant_title_imd, or delivery date."
     ),
 )
 
@@ -83,9 +84,10 @@ SHOPIFY_ORDERS = ReturnsSource(
     relation="JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS",
     status=SourceStatus.NAMED_UNVERIFIED,
     evidence=(
-        "Read by the Rocky dashboard with is_dtc_demand_eligible, "
-        "is_reportable_sales_order, and is_test_order. Scout's role access "
-        "and the sales-channel columns are unverified."
+        "Named from the Rocky dashboard, which reads is_dtc_demand_eligible, "
+        "is_reportable_sales_order, and is_test_order. On 2026-10-27 Scout's "
+        "role got Snowflake errno 2003 on this relation. "
+        "A selectable SHOPIFY.FCT_SHOPIFY__ORDERS copy does not have those three flags."
     ),
 )
 
@@ -93,10 +95,13 @@ POST_PURCHASE_ENRICHMENT = ReturnsSource(
     role=SourceRole.ENRICHMENT,
     label="Shopify post-purchase aggregate",
     relation="JA_ANALYTICS.REPORTING.SHOPIFY_AGG_POST_PURCHASE",
-    status=SourceStatus.NAMED_UNVERIFIED,
+    status=SourceStatus.VERIFIED,
     evidence=(
-        "Named by the business owner with a field list. Schema, grain, "
-        "maturity rule, and refresh have not been read from Snowflake."
+        "Base table read on 2026-10-27: 588,759 rows, last altered that day, "
+        "columns match the named field list. IS_COHORT_MATURE is not a single "
+        "day cutoff; immature rows exist on and before the latest mature "
+        "cohort date (2026-09-27). RETURN_RATE_PCT is a fraction, maximum 1. "
+        "The cohort-channel-status-SKU grain has 12 duplicate keys."
     ),
 )
 

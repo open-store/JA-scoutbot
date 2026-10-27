@@ -8,8 +8,9 @@ so there is one returns calculation. Python only decides availability and
 status from the summed counts; it never averages row-level rates.
 
 The cohort-units relation is a contract here, not a warehouse object. Its SQL
-joins Redo returns to Shopify order lines and is written only after
-``ANALYTICS.RETURN_REDO`` is profiled; until then every rate is unavailable.
+would join Redo items to Shopify order lines. It stays unset: the named order
+facts are not selectable, item outcome is not one column, and cohort maturity
+is not a single day horizon. Every rate therefore stays unavailable.
 """
 
 from __future__ import annotations

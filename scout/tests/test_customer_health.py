@@ -192,7 +192,7 @@ def test_returns_entry_consumes_the_contract():
     from queries.returns import run_return_rates
     pending = sources.returns_entry(run_return_rates(30))
     assert pending.status == UNAVAILABLE and pending.value is None
-    assert pending.reasons and "RETURN_REDO" in pending.reasons[0]
+    assert pending.reasons and "FCT_SHOPIFY__ORDER_LINES" in pending.reasons[0]
 
     counts = UnitCounts(eligible_delivered_units=10_000, redo_returned_units=2_000, redo_exchanged_units=500,
                         redo_refunded_units=1_300, redo_store_credit_units=100, redo_open_units=100)

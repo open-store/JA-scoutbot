@@ -17,8 +17,9 @@ from zoneinfo import ZoneInfo
 BUSINESS_TZ_NAME = "America/New_York"
 BUSINESS_TZ = ZoneInfo(BUSINESS_TZ_NAME)
 
-# Must equal the IS_COHORT_MATURE rule in SHOPIFY_AGG_POST_PURCHASE. None until
-# that rule is read from the model; rates stay unavailable while it is None.
+# SHOPIFY_AGG_POST_PURCHASE.IS_COHORT_MATURE is not one day cutoff: immature
+# rows exist on and before the latest mature cohort date. None until that flag
+# can be written as a single horizon. Rates stay unavailable while it is None.
 MATURITY_DAYS: int | None = None
 
 

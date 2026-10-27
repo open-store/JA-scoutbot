@@ -88,7 +88,7 @@
       "numerator": {
         "description": "Redo units on qualifying returns of those lines",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": "SUM(redo_returned_units)"
       },
       "denominator": {
@@ -99,7 +99,7 @@
       },
       "sql": "100 * SUM(redo_returned_units) / NULLIF(SUM(eligible_delivered_units), 0)",
       "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
-      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset; IS_COHORT_MATURE is not a single day horizon.",
       "filters": [
         "delivery_cohort_date",
         "sales_channel_group",
@@ -116,10 +116,9 @@
       "in_health_score": true,
       "health_weight": 0.25,
       "blockers": [
-        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
         "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
-        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
-        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+        "cohort maturity is not a single day horizon in SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built; order-line delivery columns are not selectable and item outcome is not one column"
       ],
       "scale": {
         "minimum": 0.0,
@@ -136,7 +135,7 @@
       "numerator": {
         "description": "Redo returned units settled as an exchange",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": "SUM(redo_exchanged_units)"
       },
       "denominator": {
@@ -147,7 +146,7 @@
       },
       "sql": "100 * SUM(redo_exchanged_units) / NULLIF(SUM(eligible_delivered_units), 0)",
       "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
-      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset; IS_COHORT_MATURE is not a single day horizon.",
       "filters": [
         "delivery_cohort_date",
         "sales_channel_group",
@@ -164,10 +163,9 @@
       "in_health_score": false,
       "health_weight": null,
       "blockers": [
-        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
         "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
-        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
-        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+        "cohort maturity is not a single day horizon in SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built; order-line delivery columns are not selectable and item outcome is not one column"
       ],
       "scale": {
         "minimum": 0.0,
@@ -184,18 +182,18 @@
       "numerator": {
         "description": "Redo returned units settled as an exchange",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": "SUM(redo_exchanged_units)"
       },
       "denominator": {
         "description": "Redo units on qualifying returns of those lines",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": "SUM(redo_returned_units)"
       },
       "sql": "100 * SUM(redo_exchanged_units) / NULLIF(SUM(redo_returned_units), 0)",
       "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
-      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset; IS_COHORT_MATURE is not a single day horizon.",
       "filters": [
         "delivery_cohort_date",
         "sales_channel_group",
@@ -212,10 +210,9 @@
       "in_health_score": false,
       "health_weight": null,
       "blockers": [
-        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
         "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
-        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
-        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+        "cohort maturity is not a single day horizon in SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built; order-line delivery columns are not selectable and item outcome is not one column"
       ],
       "scale": {
         "minimum": 0.0,
@@ -232,7 +229,7 @@
       "numerator": {
         "description": "Redo returned units settled as a refund",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": "SUM(redo_refunded_units)"
       },
       "denominator": {
@@ -243,7 +240,7 @@
       },
       "sql": "100 * SUM(redo_refunded_units) / NULLIF(SUM(eligible_delivered_units), 0)",
       "date_basis": "delivery_cohort_date of the Shopify order line, America/New_York",
-      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset until the enrichment model's maturity rule is read.",
+      "maturity": "Mature cohorts only (is_cohort_mature = TRUE); Redo units counted within the horizon of delivery. Horizon: unset; IS_COHORT_MATURE is not a single day horizon.",
       "filters": [
         "delivery_cohort_date",
         "sales_channel_group",
@@ -260,10 +257,9 @@
       "in_health_score": false,
       "health_weight": null,
       "blockers": [
-        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
         "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
-        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
-        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+        "cohort maturity is not a single day horizon in SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built; order-line delivery columns are not selectable and item outcome is not one column"
       ],
       "scale": {
         "minimum": 0.0,
@@ -427,17 +423,17 @@
       "numerator": {
         "description": "Redo returned units with this primary reason",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": null
       },
       "denominator": {
         "description": "All Redo returned units in the population, including no reason",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": null
       },
       "sql": null,
-      "date_basis": "Redo returns requested in the window (requested_at, unverified)",
+      "date_basis": "Redo returns requested in the window (RETURN.CREATED_AT)",
       "maturity": "Not cohort-based.",
       "filters": [
         "product",
@@ -451,7 +447,7 @@
       "in_health_score": false,
       "health_weight": null,
       "blockers": [
-        "Redo reason and comment fields unverified (scout/returns/redo_fields.py)"
+        "Redo reason and comment query is not built; outcome and settled_at are still unverified"
       ],
       "scale": {
         "minimum": null,
@@ -468,7 +464,7 @@
       "numerator": null,
       "denominator": null,
       "sql": null,
-      "date_basis": "Redo returns requested in the window (requested_at, unverified)",
+      "date_basis": "Redo returns requested in the window (RETURN.CREATED_AT)",
       "maturity": "Not cohort-based.",
       "filters": [
         "product",
@@ -482,7 +478,7 @@
       "in_health_score": false,
       "health_weight": null,
       "blockers": [
-        "Redo reason and comment fields unverified (scout/returns/redo_fields.py)"
+        "Redo reason and comment query is not built; outcome and settled_at are still unverified"
       ],
       "scale": {
         "minimum": null,
@@ -499,7 +495,7 @@
       "numerator": {
         "description": "Product returned units minus overall rate × product delivered units",
         "source": "ANALYTICS.RETURN_REDO",
-        "source_status": "named_unverified",
+        "source_status": "verified",
         "expression": "redo_returned_units - overall_pct / 100 * eligible_delivered_units"
       },
       "denominator": null,
@@ -520,10 +516,9 @@
       "health_weight": null,
       "blockers": [
         "needs available item return rates by product",
-        "Redo returns not verified for Scout (`ANALYTICS.RETURN_REDO`)",
         "Shopify order lines not verified for Scout (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES`, `JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDERS`)",
-        "cohort maturity horizon not yet read from SHOPIFY_AGG_POST_PURCHASE",
-        "cohort-units relation not built until ANALYTICS.RETURN_REDO is profiled"
+        "cohort maturity is not a single day horizon in SHOPIFY_AGG_POST_PURCHASE",
+        "cohort-units relation not built; order-line delivery columns are not selectable and item outcome is not one column"
       ],
       "scale": {
         "minimum": null,
