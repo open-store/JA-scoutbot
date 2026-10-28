@@ -227,7 +227,7 @@ def format_health_voc(data: dict) -> str:
     for entry in health.get("scorecard", []):
         lines.extend(_entry_line(entry))
     lines.append(
-        "_Each source has its own window and population: tickets use complete ET days, surveys UTC dates, "
+        "_Each source has its own window and population: tickets use complete UTC days, surveys UTC dates, "
         "reviews the last N days from now, and returns mature delivery cohorts. The three NPS-type surveys "
         "are never averaged._"
     )

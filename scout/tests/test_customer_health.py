@@ -353,4 +353,5 @@ def test_general_voc_reply_is_the_health_report_not_the_generic_tag_summary():
     assert "_What's working_" in out
     assert "The dominant customer contact theme is" not in out
     assert "never averaged" in out
+    assert "tickets use complete UTC days" in out and "complete ET days" not in out
     assert "→ Add waist guidance to the bottoms size chart." in out
