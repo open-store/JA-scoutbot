@@ -46,7 +46,8 @@ The period order return rate is distinct orders with a return submitted in the w
 | Metric | Numerator | Denominator | Date basis | Status |
 |---|---|---|---|---|
 | Period order return rate | Distinct orders with a Redo return submitted in the window (`RETURN.CREATED_AT`, America/New_York), excluding rejected and deleted. Default only | Distinct orders placed in the same window. Order-date column is `OS_DT`; the filter converts order `CREATED_AT` from UTC to America/New_York. Default excludes `redo_exchange`, `loop_exchange`, `test` / `test order` tags, voided, and cancelled | Complete days, L7, L30, L180. Not a cohort. All channels | Wired as the default. Provisional. Comparisons are not in Slack. See [decisions](decisions.md) |
-| Exchange share of submitted returns | Redo exchanged returns | Submitted returns in the same window | Same windows | Unavailable: item outcome is not one column |
+| Period exchange rate | Distinct orders with an exchanged item (`EXCHANGE_ITEM_QUANTITY > 0`) on a default return | Same default orders placed as the period return rate | Same windows | Wired. Provisional. Requested outcome at submission |
+| Exchange share of submitted returns | Returns with an exchanged item | Default returns submitted | Same windows | Wired. Also exchanged items ÷ returned items, and the outcome mix |
 | Unit cohort item return rate | Redo returned units that qualify | Eligible delivered Shopify units, same scope | Delivery cohort | Unavailable. Not the period rate. Order-line delivery columns are not the denominator |
 | Unit cohort item exchange rate | Redo exchanged units | Same eligible delivered units | Delivery cohort | Unavailable. Not the period rate |
 | Unit cohort exchange share of returned units | Redo exchanged units | Redo returned units, same population | Delivery cohort | Unavailable. Not exchange share of submitted returns |

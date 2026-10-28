@@ -40,7 +40,63 @@ def _format_period_rate(rate: PeriodRate) -> list[str]:
     unmatched = "n/a" if rate.unmatched_returns is None else f"{rate.unmatched_returns:,}"
     lines.append(f"  • *Raw returns submitted:* {raw}")
     lines.append(f"  • *Unmatched returns:* {unmatched}")
+    lines += _format_exchange(rate)
     return lines
+
+
+def _pct(value: float | None, detail: str) -> str:
+    if value is None:
+        return "unavailable"
+    return f"{value:.1f}% ({detail})"
+
+
+def _format_exchange(rate: PeriodRate) -> list[str]:
+    placed = "n/a" if rate.orders_placed is None else f"{rate.orders_placed:,}"
+    if rate.orders_with_exchange is None or rate.exchange_rate_pct is None:
+        exchange_rate = "unavailable"
+    else:
+        exchange_rate = _pct(
+            rate.exchange_rate_pct,
+            f"{rate.orders_with_exchange:,} orders with an exchanged item ÷ {placed} orders placed",
+        )
+    if rate.returns_with_exchange is None or rate.return_count is None or rate.exchange_share_pct is None:
+        share = "unavailable"
+    else:
+        share = _pct(
+            rate.exchange_share_pct,
+            f"{rate.returns_with_exchange:,} returns with an exchanged item ÷ {rate.return_count:,} returns submitted",
+        )
+    if rate.exchange_items is None or rate.returned_items is None or rate.item_exchange_share_pct is None:
+        items = "unavailable"
+    else:
+        items = _pct(
+            rate.item_exchange_share_pct,
+            f"{rate.exchange_items:,} exchanged items ÷ {rate.returned_items:,} returned items",
+        )
+    mix = "unavailable"
+    if None not in (rate.exchange_items, rate.refund_items, rate.store_credit_items, rate.none_items):
+        mix = (
+            f"{rate.exchange_items:,} exchange, {rate.refund_items:,} refund, "
+            f"{rate.store_credit_items:,} store credit, {rate.none_items:,} none"
+        )
+    gap = "unavailable"
+    if None not in (
+        rate.redo_exchange_orders_placed, rate.exchange_order_ids, rate.exchange_order_ids_placed_in_window,
+        rate.exchange_returns_missing_order_id,
+    ):
+        gap = (
+            f"{rate.redo_exchange_orders_placed:,} redo_exchange orders placed; "
+            f"{rate.exchange_order_ids:,} exchange-order ids on submitted returns "
+            f"({rate.exchange_returns_missing_order_id:,} exchange returns have no id); "
+            f"{rate.exchange_order_ids_placed_in_window:,} of those ids were placed in the window"
+        )
+    return [
+        f"  • *Period exchange rate:* {exchange_rate}",
+        f"  • *Exchange share of submitted returns:* {share}",
+        f"  • *Exchanged items ÷ returned items:* {items}",
+        f"  • *Outcome mix of returned items:* {mix}",
+        f"  • *redo_exchange cross-check:* {gap}",
+    ]
 
 
 def format_period_rates(report: PeriodReport) -> list[str]:
@@ -48,12 +104,10 @@ def format_period_rates(report: PeriodReport) -> list[str]:
     lines = [
         "*Period order return rate* (default)",
         f"_{report.note}_",
+        f"_{report.outcome_rule}_",
     ]
     for rate in report.rates:
         lines += _format_period_rate(rate)
-    lines.append(
-        f"• *Exchange share of submitted returns:* unavailable — {report.exchange_share_reason}"
-    )
     lines.append("")
     return lines
 

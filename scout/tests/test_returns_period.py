@@ -38,6 +38,9 @@ def test_query_is_read_only_and_keeps_unmatched_returns_in_the_numerator():
     assert "CONVERT_TIMEZONE('UTC', 'America/New_York', ord.\"CREATED_AT\")" in sql
     assert "OS_DT is the order-date column" in sql
     assert "redo_exchange" in sql and "loop_exchange" in sql
+    assert "EXCHANGE_ITEM_QUANTITY" in sql
+    assert "RETURN_ITEM" in sql
+    assert "EXCHANGE_ORDER_EXTERNAL_ID" in sql
     assert "rejected" in sql and "deleted" in sql
     assert "voided" in sql
     assert "test order" in sql
@@ -89,7 +92,7 @@ def test_report_matches_rows_by_label_and_keeps_exchange_share_unavailable():
     assert by_label["L7"].status is MetricStatus.UNAVAILABLE
     assert by_label["L7"].reason == "count missing"
     assert report.exchange_share_status is MetricStatus.UNAVAILABLE
-    assert "not one column" in report.exchange_share_reason
+    assert "EXCHANGE_ITEM_QUANTITY > 0" in report.outcome_rule
 
 
 def test_unmatched_cannot_exceed_submitted_returns():

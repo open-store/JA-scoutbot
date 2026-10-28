@@ -51,7 +51,9 @@ Yankho's choice, 2026-10-27: drop the delivered-unit denominator. The return rat
 | Voided and cancelled | Excluded in the default (`OS_ORDER_STATUS = 'voided'` or `ORDER_CANCELLED_AT` is not null). Every voided order is also cancelled. |
 | Channel | All channels. `OS_ALL_ORDERS` has no sales-channel column. |
 | Windows | `L7`, `L30`, and `L180`: that many complete days in `America/New_York`, ending before today. The same bounds are used on both sides. |
-| Exchange share of submitted returns | Unavailable. Redo item outcome is not one column. |
+| Period exchange rate | Distinct orders with an exchanged item on a default return, divided by the same orders-placed denominator. Exchange means `EXCHANGE_ITEM_QUANTITY > 0`. |
+| Exchange share of submitted returns | Returns with an exchanged item ÷ default returns submitted. Also reported: exchanged items ÷ returned items, and the item outcome mix (exchange, refund, store credit, none). |
+| Item outcome | Requested outcome at submission. Exchange wins when `EXCHANGE_ITEM_QUANTITY > 0`; otherwise `REFUND_TYPE`. `RETURN_COMPENSATION_METHOD` is not used. |
 
 The comparisons kept out of Slack are: denominator with replacement and test orders included; denominator with voided and cancelled orders included; numerator with rejected and deleted returns included.
 

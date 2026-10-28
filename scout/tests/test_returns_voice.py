@@ -47,11 +47,13 @@ def _verified_fields():
 
 # ── Redo field map ───────────────────────────────────────────────
 
-def test_profiled_redo_fields_name_a_column_and_two_stay_open():
-    open_fields = {"outcome", "settled_at"}
+def test_profiled_redo_fields_name_a_column_and_settled_at_stays_open():
     for field in REDO_FIELDS.values():
-        if field.name in open_fields:
+        if field.name == "settled_at":
             assert field.verified is False and field.column is None and not field.usable
+        elif field.name == "outcome":
+            assert field.verified and field.column is None and not field.usable
+            assert field.predicate == "EXCHANGE_ITEM_QUANTITY > 0 else REFUND_TYPE"
         else:
             assert field.usable and field.relation in {"RETURN", "RETURN_ITEM", "RETURN_ITEM_REASON", "RETURN_NOTE"}
     assert REDO_FIELDS["primary_reason"].predicate == "INDEX = 0"
@@ -59,6 +61,7 @@ def test_profiled_redo_fields_name_a_column_and_two_stay_open():
     assert REDO_FIELDS["shopify_order_id"].column == "ORDER_EXTERNAL_ID"
     assert REDO_FIELDS["received_at"].column == "SHIPMENT_DELIVERED_AT"
     assert missing_fields(["outcome", "settled_at"]) == ["outcome", "settled_at"]
+    assert "submission" in REDO_FIELDS["outcome"].meaning
 
 
 def test_missing_fields_checks_the_map():

@@ -28,9 +28,9 @@ from scout.returns.metrics import (
     source_blockers,
 )
 from scout.returns.period import (
-    EXCHANGE_SHARE_REASON,
     ORDER_DATE_COLUMN,
     ORDERS_SOURCE_LABEL,
+    OUTCOME_RULE,
     PERIOD_LENGTHS,
     PERIOD_NOTE,
     RETURNS_SOURCE_LABEL,
@@ -224,24 +224,65 @@ def _period_rate_specs() -> Tuple[MetricSpec, ...]:
             ),
             producer="queries.returns.run_period_rates via scout.returns.period.period_query",
         ))
-    specs.append(MetricSpec(
-        metric_id="returns.exchange_share_of_submitted_returns",
-        label="Exchange share of submitted returns",
-        family="returns",
-        value_kind=RATE_PCT,
-        numerator=Quantity("Submitted returns settled as an exchange", RETURNS_SOURCE_LABEL, REDO_RETURNS.status.value),
-        denominator=Quantity("Redo returns submitted in the window", RETURNS_SOURCE_LABEL, REDO_RETURNS.status.value),
-        sql=None,
-        date_basis=f"Return {SUBMITTED_AT_COLUMN}, America/New_York. Not a delivery cohort.",
-        maturity="Same complete-day windows as the period order return rate.",
-        filters=(),
-        filter_note="Not computed.",
-        enrichment="Not used.",
-        freshness="Not queried.",
-        evidence="Would be exchanged returns divided by submitted returns.",
-        producer="queries.returns.run_period_rates",
-        blockers=(EXCHANGE_SHARE_REASON,),
-    ))
+        specs.append(MetricSpec(
+            metric_id=f"returns.period_exchange_rate_l{days}",
+            label=f"Period exchange rate (L{days})",
+            family="returns",
+            value_kind=RATE_PCT,
+            numerator=Quantity(
+                "Distinct orders with an exchanged item on a non-rejected, non-deleted return submitted in the window",
+                RETURNS_SOURCE_LABEL,
+                SOURCE_VERIFIED,
+                "COUNT(DISTINCT ORDER_EXTERNAL_ID) where an item has EXCHANGE_ITEM_QUANTITY > 0",
+            ),
+            denominator=denominator,
+            sql="100 * COUNT(DISTINCT orders_with_exchange) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
+            date_basis=(
+                f"Same America/New_York window as the period order return rate. {OUTCOME_RULE}"
+            ),
+            maturity=f"L{days}: {days} complete America/New_York days ending before today. Not a maturity horizon.",
+            filters=(
+                "exclude_replacement_order_types",
+                "exclude_test_order_tags",
+                "exclude_voided_and_cancelled",
+                "exclude_rejected_and_deleted_returns",
+            ),
+            filter_note="Same default as returns.period_order_return_rate. Not a delivered-unit rate.",
+            enrichment="The post-purchase aggregate is not used and does not replace Redo outcomes.",
+            freshness="Queried when /returns runs. Not a stored snapshot.",
+            evidence="Outcome mix of returned items and the redo_exchange order cross-check for the same window.",
+            producer="queries.returns.run_period_rates via scout.returns.period.period_query",
+        ))
+        specs.append(MetricSpec(
+            metric_id=f"returns.exchange_share_of_submitted_returns_l{days}",
+            label=f"Exchange share of submitted returns (L{days})",
+            family="returns",
+            value_kind=RATE_PCT,
+            numerator=Quantity(
+                "Returns submitted in the window with at least one exchanged item",
+                RETURNS_SOURCE_LABEL,
+                SOURCE_VERIFIED,
+                "COUNT(DISTINCT RETURN.ID) where an item has EXCHANGE_ITEM_QUANTITY > 0",
+            ),
+            denominator=Quantity(
+                "Returns submitted in the window, excluding rejected and deleted",
+                RETURNS_SOURCE_LABEL,
+                SOURCE_VERIFIED,
+                "COUNT(*) of default submitted returns",
+            ),
+            sql="100 * COUNT(DISTINCT returns_with_exchange) / NULLIF(COUNT(submitted_returns), 0)",
+            date_basis=f"Return {SUBMITTED_AT_COLUMN}, America/New_York. {OUTCOME_RULE}",
+            maturity=f"L{days}: same complete-day window as the period order return rate.",
+            filters=("exclude_rejected_and_deleted_returns",),
+            filter_note=(
+                "Replaces the unavailable returns.exchange_share_of_submitted_returns. "
+                "Evidence also has exchanged items ÷ returned items."
+            ),
+            enrichment="Not used.",
+            freshness="Queried when /returns runs.",
+            evidence="Item exchange share and outcome mix: exchange, refund, store credit, none.",
+            producer="queries.returns.run_period_rates",
+        ))
     return tuple(specs)
 
 

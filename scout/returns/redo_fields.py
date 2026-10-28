@@ -81,7 +81,10 @@ _FIELDS = (
     ),
     RedoField(
         "outcome",
-        "Settlement per item. Not one column: REFUND_TYPE is refund, store_credit, or none, and a null refund type with EXCHANGE_ITEM_QUANTITY = 1 is an exchange",
+        "Requested outcome at submission, not settlement. Exchange when EXCHANGE_ITEM_QUANTITY > 0; otherwise REFUND_TYPE. RETURN_COMPENSATION_METHOD can disagree and is not used",
+        relation="RETURN_ITEM",
+        verified=True,
+        predicate="EXCHANGE_ITEM_QUANTITY > 0 else REFUND_TYPE",
     ),
     RedoField(
         "exchange_order_id",

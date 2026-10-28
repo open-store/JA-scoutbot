@@ -28,9 +28,11 @@ There is no sales-channel column, so the rate is all channels.
 ``SHOP_ORDER_SOURCE_NAME`` is not a channel. Unmatched returns stay in the
 numerator and are reported beside it.
 
-Exchange share of submitted returns stays unavailable. Item outcome is not
-one Redo column. The unit-cohort rates in ``scout.returns.metrics`` are a
-different metric and stay unavailable.
+Item outcome is the requested outcome at submission, not settlement.
+Exchange wins when ``EXCHANGE_ITEM_QUANTITY`` is greater than 0; otherwise
+the outcome is ``REFUND_TYPE`` (refund, store credit, or none).
+``RETURN_COMPENSATION_METHOD`` is not used, because it can disagree with the
+item. The unit-cohort rates in ``scout.returns.metrics`` stay unavailable.
 """
 
 from __future__ import annotations
@@ -54,8 +56,10 @@ REPLACEMENT_ORDER_STATUSES: tuple[str, ...] = ("redo_exchange", "loop_exchange")
 EXCLUDED_RETURN_STATUSES: tuple[str, ...] = ("rejected", "deleted")
 TEST_ORDER_TAGS: tuple[str, ...] = ("test", "test order")
 
-EXCHANGE_SHARE_REASON = (
-    "Redo item outcome is not one column, so exchange share of submitted returns is not computed"
+OUTCOME_RULE = (
+    "Requested outcome at submission, not settlement. "
+    "Exchange when EXCHANGE_ITEM_QUANTITY > 0; otherwise REFUND_TYPE "
+    "(refund, store_credit, or none). RETURN_COMPENSATION_METHOD is not used."
 )
 FILTERS_APPLIED: tuple[str, ...] = (
     "denominator excludes redo_exchange and loop_exchange order types",
@@ -122,18 +126,37 @@ class PeriodRate:
     unmatched_including_rejected: int | None = None
     orders_including_replacement_and_test: int | None = None
     orders_including_voided_and_cancelled: int | None = None
+    orders_with_exchange: int | None = None
+    returns_with_exchange: int | None = None
+    exchange_items: int | None = None
+    returned_items: int | None = None
+    refund_items: int | None = None
+    store_credit_items: int | None = None
+    none_items: int | None = None
+    redo_exchange_orders_placed: int | None = None
+    exchange_order_ids: int | None = None
+    exchange_returns_missing_order_id: int | None = None
+    exchange_order_ids_placed_in_window: int | None = None
+    exchange_rate_pct: float | None = None
+    exchange_share_pct: float | None = None
+    item_exchange_share_pct: float | None = None
 
 
 @dataclass(frozen=True)
 class PeriodReport:
     rates: tuple[PeriodRate, ...]
-    exchange_share_reason: str = EXCHANGE_SHARE_REASON
+    outcome_rule: str = OUTCOME_RULE
     filters_applied: tuple[str, ...] = FILTERS_APPLIED
     filters_not_applied: tuple[str, ...] = FILTERS_NOT_APPLIED
     note: str = PERIOD_NOTE
 
     @property
     def exchange_share_status(self) -> MetricStatus:
+        shares = [r.exchange_share_pct for r in self.rates]
+        if shares and all(s is not None for s in shares):
+            return MetricStatus.PROVISIONAL
+        if any(s is not None for s in shares):
+            return MetricStatus.PROVISIONAL
         return MetricStatus.UNAVAILABLE
 
 
@@ -164,6 +187,7 @@ def period_query(
         params[f"start_{i}"] = window.start.isoformat()
         params[f"end_{i}"] = window.end.isoformat()
     returns = _qualified(database, schema, "RETURN")
+    items_table = _qualified(database, schema, "RETURN_ITEM")
     orders = _qualified(database, "MAIN_OS", "OS_ALL_ORDERS")
     submitted = ident(SUBMITTED_AT_COLUMN)
     placed_at = ident(SUBMITTED_AT_COLUMN)
@@ -178,7 +202,9 @@ WITH windows AS (
 submitted AS (
     SELECT
         w.label,
+        ret.ID AS return_id,
         ret.ORDER_EXTERNAL_ID AS order_external_id,
+        ret.EXCHANGE_ORDER_EXTERNAL_ID AS exchange_order_id,
         IFF(ret.STATUS IN ({excluded_returns}), 1, 0) AS excluded_status,
         IFF(
             ret.ORDER_EXTERNAL_ID IS NULL
@@ -227,6 +253,77 @@ placed AS (
       ON CONVERT_TIMEZONE('UTC', 'America/New_York', ord.{placed_at})::DATE >= w.start_date
      AND CONVERT_TIMEZONE('UTC', 'America/New_York', ord.{placed_at})::DATE < w.end_date
 ),
+items AS (
+    SELECT
+        s.label,
+        s.excluded_status,
+        s.order_external_id,
+        s.return_id,
+        s.exchange_order_id,
+        IFF(COALESCE(i.EXCHANGE_ITEM_QUANTITY, 0) > 0, 'exchange', i.REFUND_TYPE) AS outcome
+    FROM submitted s
+    JOIN {items_table} i ON i.RETURN_ID = s.return_id
+),
+item_counts AS (
+    SELECT
+        label,
+        COUNT(DISTINCT IFF(excluded_status = 0 AND outcome = 'exchange', order_external_id, NULL))
+            AS orders_with_exchange,
+        COUNT(DISTINCT IFF(excluded_status = 0 AND outcome = 'exchange', return_id, NULL))
+            AS returns_with_exchange,
+        SUM(IFF(excluded_status = 0 AND outcome = 'exchange', 1, 0)) AS exchange_items,
+        SUM(IFF(excluded_status = 0, 1, 0)) AS returned_items,
+        SUM(IFF(excluded_status = 0 AND outcome = 'refund', 1, 0)) AS refund_items,
+        SUM(IFF(excluded_status = 0 AND outcome = 'store_credit', 1, 0)) AS store_credit_items,
+        SUM(IFF(excluded_status = 0 AND outcome = 'none', 1, 0)) AS none_items,
+        COUNT(DISTINCT IFF(
+            excluded_status = 0 AND outcome = 'exchange' AND exchange_order_id IS NOT NULL,
+            exchange_order_id, NULL
+        )) AS exchange_order_ids,
+        COUNT(DISTINCT IFF(
+            excluded_status = 0 AND outcome = 'exchange' AND exchange_order_id IS NULL,
+            return_id, NULL
+        )) AS exchange_returns_missing_order_id
+    FROM items
+    GROUP BY label
+),
+redo_placed AS (
+    SELECT
+        w.label,
+        ord.SHOP_ORDER_ID AS shop_order_id,
+        ord.OS_ORDER_ID AS os_order_id
+    FROM windows w
+    JOIN {orders} ord
+      ON CONVERT_TIMEZONE('UTC', 'America/New_York', ord.{placed_at})::DATE >= w.start_date
+     AND CONVERT_TIMEZONE('UTC', 'America/New_York', ord.{placed_at})::DATE < w.end_date
+     AND ord.OS_ORDER_STATUS = 'redo_exchange'
+),
+redo_counts AS (
+    SELECT label, COUNT(DISTINCT shop_order_id) AS redo_exchange_orders_placed
+    FROM redo_placed
+    GROUP BY label
+),
+exchange_id_overlap AS (
+    SELECT
+        items.label,
+        COUNT(DISTINCT IFF(
+            items.excluded_status = 0
+            AND items.outcome = 'exchange'
+            AND items.exchange_order_id IS NOT NULL
+            AND EXISTS (
+                SELECT 1
+                FROM redo_placed placed
+                WHERE placed.label = items.label
+                  AND (
+                    placed.shop_order_id = TRY_TO_NUMBER(items.exchange_order_id)
+                    OR placed.os_order_id = TO_VARCHAR(items.exchange_order_id)
+                  )
+            ),
+            items.exchange_order_id, NULL
+        )) AS exchange_order_ids_placed_in_window
+    FROM items
+    GROUP BY items.label
+),
 order_counts AS (
     SELECT
         label,
@@ -251,10 +348,24 @@ SELECT
     COALESCE(r.return_count_including_rejected, 0) AS return_count_including_rejected,
     COALESCE(r.unmatched_including_rejected, 0) AS unmatched_including_rejected,
     COALESCE(o.orders_including_replacement_and_test, 0) AS orders_including_replacement_and_test,
-    COALESCE(o.orders_including_voided_and_cancelled, 0) AS orders_including_voided_and_cancelled
+    COALESCE(o.orders_including_voided_and_cancelled, 0) AS orders_including_voided_and_cancelled,
+    COALESCE(c.orders_with_exchange, 0) AS orders_with_exchange,
+    COALESCE(c.returns_with_exchange, 0) AS returns_with_exchange,
+    COALESCE(c.exchange_items, 0) AS exchange_items,
+    COALESCE(c.returned_items, 0) AS returned_items,
+    COALESCE(c.refund_items, 0) AS refund_items,
+    COALESCE(c.store_credit_items, 0) AS store_credit_items,
+    COALESCE(c.none_items, 0) AS none_items,
+    COALESCE(c.exchange_order_ids, 0) AS exchange_order_ids,
+    COALESCE(c.exchange_returns_missing_order_id, 0) AS exchange_returns_missing_order_id,
+    COALESCE(p.redo_exchange_orders_placed, 0) AS redo_exchange_orders_placed,
+    COALESCE(v.exchange_order_ids_placed_in_window, 0) AS exchange_order_ids_placed_in_window
 FROM windows w
 LEFT JOIN return_counts r ON r.label = w.label
 LEFT JOIN order_counts o ON o.label = w.label
+LEFT JOIN item_counts c ON c.label = w.label
+LEFT JOIN redo_counts p ON p.label = w.label
+LEFT JOIN exchange_id_overlap v ON v.label = w.label
 """.strip()
     return sql, params
 
@@ -290,6 +401,17 @@ def evaluate_period(
     unmatched_including_rejected: int | None = None,
     orders_including_replacement_and_test: int | None = None,
     orders_including_voided_and_cancelled: int | None = None,
+    orders_with_exchange: int | None = None,
+    returns_with_exchange: int | None = None,
+    exchange_items: int | None = None,
+    returned_items: int | None = None,
+    refund_items: int | None = None,
+    store_credit_items: int | None = None,
+    none_items: int | None = None,
+    redo_exchange_orders_placed: int | None = None,
+    exchange_order_ids: int | None = None,
+    exchange_returns_missing_order_id: int | None = None,
+    exchange_order_ids_placed_in_window: int | None = None,
 ) -> PeriodRate:
     """Turn one window's counts into a rate. Over 100% is allowed."""
     for name, value in (
@@ -308,6 +430,20 @@ def evaluate_period(
         unmatched_including_rejected=unmatched_including_rejected,
         orders_including_replacement_and_test=orders_including_replacement_and_test,
         orders_including_voided_and_cancelled=orders_including_voided_and_cancelled,
+        orders_with_exchange=orders_with_exchange,
+        returns_with_exchange=returns_with_exchange,
+        exchange_items=exchange_items,
+        returned_items=returned_items,
+        refund_items=refund_items,
+        store_credit_items=store_credit_items,
+        none_items=none_items,
+        redo_exchange_orders_placed=redo_exchange_orders_placed,
+        exchange_order_ids=exchange_order_ids,
+        exchange_returns_missing_order_id=exchange_returns_missing_order_id,
+        exchange_order_ids_placed_in_window=exchange_order_ids_placed_in_window,
+        exchange_rate_pct=ratio_pct(orders_with_exchange, orders_placed),
+        exchange_share_pct=ratio_pct(returns_with_exchange, return_count),
+        item_exchange_share_pct=ratio_pct(exchange_items, returned_items),
     )
     if orders_placed <= 0:
         return PeriodRate(
@@ -345,5 +481,18 @@ def report_from_rows(windows: Sequence[PeriodWindow], rows: Sequence[Mapping[str
                 _cell(row, "orders_including_replacement_and_test")),
             orders_including_voided_and_cancelled=_optional_whole(
                 _cell(row, "orders_including_voided_and_cancelled")),
+            orders_with_exchange=_optional_whole(_cell(row, "orders_with_exchange")),
+            returns_with_exchange=_optional_whole(_cell(row, "returns_with_exchange")),
+            exchange_items=_optional_whole(_cell(row, "exchange_items")),
+            returned_items=_optional_whole(_cell(row, "returned_items")),
+            refund_items=_optional_whole(_cell(row, "refund_items")),
+            store_credit_items=_optional_whole(_cell(row, "store_credit_items")),
+            none_items=_optional_whole(_cell(row, "none_items")),
+            redo_exchange_orders_placed=_optional_whole(_cell(row, "redo_exchange_orders_placed")),
+            exchange_order_ids=_optional_whole(_cell(row, "exchange_order_ids")),
+            exchange_returns_missing_order_id=_optional_whole(
+                _cell(row, "exchange_returns_missing_order_id")),
+            exchange_order_ids_placed_in_window=_optional_whole(
+                _cell(row, "exchange_order_ids_placed_in_window")),
         ))
     return PeriodReport(rates=tuple(rates))

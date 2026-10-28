@@ -64,7 +64,7 @@ def test_committed_contract_file_matches_the_code():
 
 def test_metric_ids_are_unique_and_every_kind_has_a_scale():
     ids = [s.metric_id for s in all_specs()]
-    assert len(ids) == len(set(ids)) == 23
+    assert len(ids) == len(set(ids)) == 28
     assert all(s.value_kind in SCALES for s in all_specs())
     assert {s.family for s in all_specs()} == {"returns", "customer_health"}
 
@@ -124,10 +124,24 @@ def test_period_rate_instances_keep_counts_and_leave_exchange_share_unavailable(
     assert l30["evidence"]["return_count"] == 45
     assert l30["evidence"]["unmatched_returns"] == 2
     assert "Not a cohort rate" in l30["date_basis"]
-    share = by["returns.exchange_share_of_submitted_returns"]
-    assert share["status"]["availability"] == UNAVAILABLE and share["value"] is None
+    share = by["returns.exchange_share_of_submitted_returns_l30"]
+    assert share["status"]["availability"] == "provisional"
+    assert share["value"] == pytest.approx(20.0)
+    assert (share["numerator"]["value"], share["denominator"]["value"]) == (9, 45)
+    assert share["evidence"]["item_exchange_share_pct"] == pytest.approx(20.0)
+    assert share["evidence"]["outcome_mix"] == {
+        "exchange": 10, "refund": 20, "store_credit": 15, "none": 5,
+    }
+    exchange = by["returns.period_exchange_rate_l30"]
+    assert exchange["status"]["availability"] == "provisional"
+    assert exchange["value"] == pytest.approx(2.0)
+    assert exchange["evidence"]["redo_exchange_orders_placed"] == 12
+    assert exchange["evidence"]["exchange_order_ids_placed_in_window"] == 4
     for days in (7, 30, 180):
         assert f"returns.period_order_return_rate_l{days}" in by
+        assert f"returns.period_exchange_rate_l{days}" in by
+        assert f"returns.exchange_share_of_submitted_returns_l{days}" in by
+    assert "returns.exchange_share_of_submitted_returns" not in by
 
 
 def test_returns_rates_are_unavailable_with_null_values_and_reasons(returns_data):

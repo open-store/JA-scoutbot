@@ -131,10 +131,44 @@ def _returns_instances(data: Mapping[str, Any], specs: Mapping[str, MetricSpec])
                     },
                 },
             ))
-        out.append(instance(
-            specs["returns.exchange_share_of_submitted_returns"],
-            availability=UNAVAILABLE, reasons=[period.exchange_share_reason],
-        ))
+            label = rate.window.label.lower()
+            exchange_status = (
+                UNAVAILABLE if rate.exchange_rate_pct is None else _FROM_METRIC_STATUS[rate.status]
+            )
+            share_status = UNAVAILABLE if rate.exchange_share_pct is None else PROVISIONAL
+            out.append(instance(
+                specs[f"returns.period_exchange_rate_{label}"],
+                availability=exchange_status, value=rate.exchange_rate_pct,
+                numerator=rate.orders_with_exchange, denominator=rate.orders_placed,
+                window=f"{rate.window.label}: {rate.window.describe()}",
+                reasons=[rate.reason if exchange_status != UNAVAILABLE else "count missing"],
+                evidence={
+                    "outcome_rule": period.outcome_rule,
+                    "redo_exchange_orders_placed": rate.redo_exchange_orders_placed,
+                    "exchange_order_ids": rate.exchange_order_ids,
+                    "exchange_returns_missing_order_id": rate.exchange_returns_missing_order_id,
+                    "exchange_order_ids_placed_in_window": rate.exchange_order_ids_placed_in_window,
+                },
+            ))
+            out.append(instance(
+                specs[f"returns.exchange_share_of_submitted_returns_{label}"],
+                availability=share_status, value=rate.exchange_share_pct,
+                numerator=rate.returns_with_exchange, denominator=rate.return_count,
+                window=f"{rate.window.label}: {rate.window.describe()}",
+                reasons=[] if share_status != UNAVAILABLE else ["count missing"],
+                evidence={
+                    "outcome_rule": period.outcome_rule,
+                    "exchange_items": rate.exchange_items,
+                    "returned_items": rate.returned_items,
+                    "item_exchange_share_pct": rate.item_exchange_share_pct,
+                    "outcome_mix": {
+                        "exchange": rate.exchange_items,
+                        "refund": rate.refund_items,
+                        "store_credit": rate.store_credit_items,
+                        "none": rate.none_items,
+                    },
+                },
+            ))
 
     rates = data.get("rates")
     if isinstance(rates, RatesReport):

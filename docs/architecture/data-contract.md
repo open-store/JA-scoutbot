@@ -15,7 +15,8 @@ This contract defines the CX/VOC metrics once, so that Scout and a future Rocky 
 | `metric_id` | Kind | Numerator ÷ denominator (source) | Date basis | Health weight |
 |---|---|---|---|---|
 | `returns.period_order_return_rate_l{7,30,180}` | `rate_pct` | Default: distinct orders with a Redo return submitted in the window, excluding rejected and deleted, ÷ distinct orders placed on `OS_DT` via America/New_York, excluding replacement types, test tags, voided, and cancelled | Complete ET days. Not a cohort. All channels | — |
-| `returns.exchange_share_of_submitted_returns` | `rate_pct` | Exchanged submitted returns ÷ submitted returns. Unavailable: outcome is not one column | Same windows | — |
+| `returns.period_exchange_rate_l{7,30,180}` | `rate_pct` | Distinct orders with an exchanged item on a default return ÷ the period-rate orders placed | Same windows | — |
+| `returns.exchange_share_of_submitted_returns_l{7,30,180}` | `rate_pct` | Returns with an exchanged item ÷ default returns submitted. Evidence has exchanged items ÷ returned items and the outcome mix | Same windows | — |
 | `returns.item_return_rate` | `rate_pct` | Redo returned units (`ANALYTICS.RETURN_REDO`) ÷ eligible delivered units (`JA_ANALYTICS.DBT.FCT_SHOPIFY__ORDER_LINES` + `FCT_SHOPIFY__ORDERS`) | Delivery cohort, ET, mature only | 0.25, validated only |
 | `returns.item_exchange_rate` | `rate_pct` | Redo exchanged units ÷ eligible delivered units | Same | — |
 | `returns.exchange_share_of_returned_units` | `rate_pct` | Redo exchanged units ÷ Redo returned units | Same | — |

@@ -59,9 +59,27 @@ class _Conn:
 
 
 PERIOD_ROWS = [
-    {"LABEL": "L7", "ORDERS_WITH_RETURN": 10, "RETURN_COUNT": 12, "UNMATCHED_RETURNS": 1, "ORDERS_PLACED": 100},
-    {"LABEL": "L30", "ORDERS_WITH_RETURN": 40, "RETURN_COUNT": 45, "UNMATCHED_RETURNS": 2, "ORDERS_PLACED": 400},
-    {"LABEL": "L180", "ORDERS_WITH_RETURN": 90, "RETURN_COUNT": 100, "UNMATCHED_RETURNS": 0, "ORDERS_PLACED": 900},
+    {
+        "LABEL": "L7", "ORDERS_WITH_RETURN": 10, "RETURN_COUNT": 12, "UNMATCHED_RETURNS": 1, "ORDERS_PLACED": 100,
+        "ORDERS_WITH_EXCHANGE": 2, "RETURNS_WITH_EXCHANGE": 3, "EXCHANGE_ITEMS": 4, "RETURNED_ITEMS": 20,
+        "REFUND_ITEMS": 10, "STORE_CREDIT_ITEMS": 4, "NONE_ITEMS": 2,
+        "REDO_EXCHANGE_ORDERS_PLACED": 6, "EXCHANGE_ORDER_IDS": 5,
+        "EXCHANGE_RETURNS_MISSING_ORDER_ID": 1, "EXCHANGE_ORDER_IDS_PLACED_IN_WINDOW": 1,
+    },
+    {
+        "LABEL": "L30", "ORDERS_WITH_RETURN": 40, "RETURN_COUNT": 45, "UNMATCHED_RETURNS": 2, "ORDERS_PLACED": 400,
+        "ORDERS_WITH_EXCHANGE": 8, "RETURNS_WITH_EXCHANGE": 9, "EXCHANGE_ITEMS": 10, "RETURNED_ITEMS": 50,
+        "REFUND_ITEMS": 20, "STORE_CREDIT_ITEMS": 15, "NONE_ITEMS": 5,
+        "REDO_EXCHANGE_ORDERS_PLACED": 12, "EXCHANGE_ORDER_IDS": 11,
+        "EXCHANGE_RETURNS_MISSING_ORDER_ID": 2, "EXCHANGE_ORDER_IDS_PLACED_IN_WINDOW": 4,
+    },
+    {
+        "LABEL": "L180", "ORDERS_WITH_RETURN": 90, "RETURN_COUNT": 100, "UNMATCHED_RETURNS": 0, "ORDERS_PLACED": 900,
+        "ORDERS_WITH_EXCHANGE": 18, "RETURNS_WITH_EXCHANGE": 20, "EXCHANGE_ITEMS": 22, "RETURNED_ITEMS": 80,
+        "REFUND_ITEMS": 40, "STORE_CREDIT_ITEMS": 10, "NONE_ITEMS": 8,
+        "REDO_EXCHANGE_ORDERS_PLACED": 30, "EXCHANGE_ORDER_IDS": 25,
+        "EXCHANGE_RETURNS_MISSING_ORDER_ID": 4, "EXCHANGE_ORDER_IDS_PLACED_IN_WINDOW": 9,
+    },
 ]
 
 
@@ -120,7 +138,12 @@ def test_report_leads_with_the_period_rate_and_labels_the_export_honestly(export
     assert "rejected and deleted" in text
     assert "including rejected" not in text
     assert "with them included" not in text
-    assert "Exchange share of submitted returns:* unavailable" in text
+    assert "Period exchange rate:* 2.0% (8 orders with an exchanged item ÷ 400 orders placed)" in text
+    assert "Exchange share of submitted returns:* 20.0% (9 returns with an exchanged item ÷ 45 returns submitted)" in text
+    assert "Exchanged items ÷ returned items:* 20.0% (10 exchanged items ÷ 50 returned items)" in text
+    assert "Outcome mix of returned items:* 10 exchange, 20 refund, 15 store credit, 5 none" in text
+    assert "redo_exchange cross-check:* 12 redo_exchange orders placed; 11 exchange-order ids on submitted returns (2 exchange returns have no id); 4 of those ids were placed in the window" in text
+    assert "EXCHANGE_ITEM_QUANTITY > 0" in text
     for label in (
         "Unit cohort item return rate",
         "Unit cohort item exchange rate",
@@ -198,5 +221,6 @@ def test_help_names_the_period_rate_and_keeps_unit_cohort_rates_unavailable():
     from scout.formatting.help import format_help
 
     line = next(l for l in format_help().splitlines() if "/returns" in l)
-    assert "Period order return rate" in line
+    assert "Period return rate" in line
+    assert "exchange rate" in line
     assert "not available yet" in line
