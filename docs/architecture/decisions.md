@@ -16,9 +16,17 @@ Short windows can have very few ratings. The report still returns the percentage
 
 ## Errors
 
-`/errors` does not use an error tag. A conversation counts as an error when `SUBJECT` matches a keyword list in `queries/errors.py` (`error`, `bug`, `checkout`, `discount code`, and the rest of `ERROR_KEYWORDS`).
+Yankho's definition, 2026-10-28: the error rate is the share of tickets carrying a tag from one Issue sub-category. `/errors` shows it as the support error rate (`scout.health.error_rate`), labeled with its group and marked provisional.
 
-The error rate is error conversations divided by all conversations in the window. The report also groups matching subjects into categories (discount, checkout, login, subscription, website, other) and compares CSAT on error subjects with CSAT on the rest.
+| Piece | Default |
+|---|---|
+| Numerator | Distinct conversations whose `TAGS` hold a UUID of the error group's tags |
+| Error group | `scout.taxonomy.issue_tags.ERROR_RATE_GROUP`, default `Storefront / UX` (`storefront-experience`, `web_issues`, the same tags as the `web_errors` scope). It can be any Issue sub-category or all of `Issue`. Which one counts as an error is not decided |
+| Tag names | Each sub-category lists the live Jack Archer tags and the legacy names from the support taxonomy's legacy mappings. No legacy name has a UUID in `TAG_ID_TO_NAME`, and the warehouse has no tag table, so legacy names match no ticket |
+| Denominator | All conversations created in the window, `_FIVETRAN_DELETED = FALSE`, all channels |
+| Windows | `/errors LN` uses the command window. The contract uses `L7`, `L30`, and `L180`, the period-rate windows. Both are complete `America/New_York` days, bound with their UTC offsets |
+
+The rest of `/errors` still uses subject keywords (`ERROR_KEYWORDS` in `queries/errors.py`): total error-related tickets, the categories (discount, checkout, login, subscription, website, other), and the CSAT comparison. Those keyword queries pass bounds without an offset, so the UTC session reads them as UTC days. The keyword share is not the error rate.
 
 ## Returns are not a return rate
 

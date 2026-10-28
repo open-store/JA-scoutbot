@@ -61,7 +61,9 @@ A broader filter also exists in that file. It excludes known agent and system au
 
 ## Tags
 
-`TAGS` is a JSON array of UUID strings. Resolution to names is the dict `TAG_ID_TO_NAME` in `scout/taxonomy/tag_ids.py`. Scope groups (product feedback, shipping, and the rest) are tag names in `scout/taxonomy/tags.py`.
+`TAGS` is a JSON array of UUID strings. Resolution to names is the dict `TAG_ID_TO_NAME` in `scout/taxonomy/tag_ids.py`. Scope groups (product feedback, shipping, and the rest) are tag names in `scout/taxonomy/tags.py`. The Issue sub-categories behind the support error rate are tag names in `scout/taxonomy/issue_tags.py`.
+
+There is no tag table in `RICHPANEL_CONNECTOR`; the schema has `CONVERSATIONS`, `CUSTOMERS`, and `MESSAGES`. Tickets carry tags in two levels: a category tag (`issue`, `inquiry`, `action`, `comment`) and a sub-tag such as `storefront-experience` or `lost-in-transit`. Some tag UUIDs on tickets are not in `TAG_ID_TO_NAME`.
 
 Frequency queries flatten the array:
 

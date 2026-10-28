@@ -1,11 +1,12 @@
 """Slack formatting."""
 
 from scout.formatting._common import _no_data_message
+from scout.health.error_rate import ErrorRateReport, rate_line_label
+from scout.taxonomy.issue_tags import ERROR_RATE_GROUP
 
 def format_errors(data: dict) -> str:
     """Format Errors results for Slack."""
     current = data.get("current", {})
-    previous = data.get("previous", {})
     categories = data.get("categories", [])
     csat_comp = data.get("csat_comparison", [])
     samples = data.get("samples", [])
@@ -14,26 +15,39 @@ def format_errors(data: dict) -> str:
 
     error_count = current.get("ERROR_CONVERSATIONS", 0)
     total = current.get("TOTAL_CONVERSATIONS", 0)
-    error_rate = current.get("ERROR_RATE_PCT", 0)
-    prev_error_rate = previous.get("ERROR_RATE_PCT", 0)
 
     if total == 0:
         return _no_data_message("Errors", timeframe, "Richpanel via Snowflake")
 
+    report = data.get("error_rate")
+    group = report.group if isinstance(report, ErrorRateReport) else ERROR_RATE_GROUP
+    rate = report.rate("current") if isinstance(report, ErrorRateReport) else None
+    prior = report.rate("previous") if isinstance(report, ErrorRateReport) else None
+    error_rate = rate.value_pct if rate else None
+    prev_error_rate = prior.value_pct if prior else None
+
     # Change
     rate_change = ""
-    if prev_error_rate is not None and prev_error_rate > 0:
-        change = float(error_rate or 0) - float(prev_error_rate)
+    if error_rate is not None and prev_error_rate is not None and prev_error_rate > 0:
+        change = error_rate - prev_error_rate
         rate_change = f" ({'+' if change > 0 else ''}{change:.1f} pts vs. previous {days} days)"
 
-    headline = f"*:warning: Error-related tickets represented {error_rate}% of support volume over the last {days} complete days.*"
+    if error_rate is None:
+        headline = f"*:warning: The support error rate is unavailable for the last {days} complete days.*"
+    else:
+        headline = f"*:warning: Error-related tickets represented {error_rate:.1f}% of support volume over the last {days} complete days.*"
 
     lines = [headline, ""]
 
     # Error summary
     lines.append("*Error summary*")
     lines.append(f"• *Total error-related tickets:* {error_count}")
-    lines.append(f"• *Error rate:* {error_rate}% of conversations")
+    if rate and error_rate is not None:
+        lines.append(f"• *{rate_line_label(group)}:* {error_rate:.1f}% of conversations "
+                     f"({rate.tagged:,} of {rate.total:,})")
+    else:
+        reason = rate.reason if rate else "not computed"
+        lines.append(f"• *{rate_line_label(group)}:* unavailable ({reason})")
     if rate_change:
         lines.append(f"• *Change:* {rate_change.strip(' ()')}")
     lines.append(f"• *Timeframe:* {timeframe}")

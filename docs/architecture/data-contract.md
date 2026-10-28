@@ -7,7 +7,7 @@ This contract defines the CX/VOC metrics once, so that Scout and a future Rocky 
 | File | Role |
 |---|---|
 | `scout/contract/spec.py` | One `MetricSpec` per metric. Built from `scout.returns` and `scout.health.score`, so it cannot drift from the code |
-| `scout/contract/payload.py` | `contract_payload(returns_data, health_report)` turns `run_returns` and `build_health_report` output into contract instances. It never recomputes a metric |
+| `scout/contract/payload.py` | `contract_payload(returns_data, health_report, error_rates=...)` turns `run_returns`, `build_health_report`, and `run_error_rates` output into contract instances. It never recomputes a metric |
 | `docs/contracts/cx-voc-contract.v1.json` | The spec as JSON, for Rocky. Regenerate it with `python -m scout.contract > docs/contracts/cx-voc-contract.v1.json`. A test fails if the file is out of date |
 
 ## Metrics
@@ -27,6 +27,7 @@ This contract defines the CX/VOC metrics once, so that Scout and a future Rocky 
 | `returns.comment_themes` | `themes` | Distinct returns per theme, computed from citations | Return requested | — |
 | `returns.products_to_watch` | `ranking` | Excess returned units over the overall rate | Delivery cohort | — |
 | `health.support_csat` | `rate_pct` | Tickets rated 4–5 ÷ rated tickets (Richpanel via Snowflake) | Ticket created, ET complete days | 0.25 |
+| `health.support_error_rate_l{7,30,180}` | `rate_pct` | Provisional. Distinct conversations with a tag from the error group (`ERROR_RATE_GROUP`, default Storefront / UX) ÷ all conversations (Richpanel via Snowflake). Changing the group changes the numerator; regenerate the JSON | Conversation created, ET complete days, period-rate windows | — |
 | `health.nps_survey` | `nps` | % promoters − % detractors, NPS Survey (KnoCommerce via Snowflake) | Response created, UTC | 0.30 |
 | `health.okendo_rating` | `stars` | Mean stars of approved reviews (Okendo API, live) | Review date, UTC | 0.20 |
 | `health.returning_pps_nps`, `health.new_pps_nps` | `nps` | Recommend NPS within each survey. The surveys are separate populations and are never averaged | Response created, UTC | — |

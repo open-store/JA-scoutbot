@@ -17,6 +17,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Dict, Optional, Tuple
 
+from scout.health import error_rate
 from scout.health.score import DEFAULT_CONFIG, HEALTH_SCORE_VERSION
 from scout.returns import cohorts
 from scout.returns.metrics import (
@@ -45,6 +46,7 @@ from scout.returns.sources import (
     SHOPIFY_ORDERS,
     SourceRole,
 )
+from scout.taxonomy.issue_tags import ERROR_RATE_GROUP, resolve_issue_tags
 
 CONTRACT_VERSION = "cx-voc-contract/1"
 
@@ -510,6 +512,50 @@ def _health_specs() -> Tuple[MetricSpec, ...]:
     )
 
 
+def _support_error_rate_specs() -> Tuple[MetricSpec, ...]:
+    """Tickets carrying a tag from the error group ÷ all tickets. The group is not decided yet."""
+    group = ERROR_RATE_GROUP
+    _, matched, unresolved = resolve_issue_tags(group)
+    numerator = Quantity(
+        f"Distinct conversations carrying a {group} tag (Issue taxonomy)",
+        error_rate.CONVERSATIONS,
+        SOURCE_PRODUCTION,
+        f"COUNT(DISTINCT ID) where PARSE_JSON(TAGS) holds a UUID of: {', '.join(matched)}",
+    )
+    denominator = Quantity(
+        "All conversations created in the window",
+        error_rate.CONVERSATIONS,
+        SOURCE_PRODUCTION,
+        "COUNT(DISTINCT ID)",
+    )
+    return tuple(
+        MetricSpec(
+            metric_id=f"health.support_error_rate_l{days}",
+            label=f"Support error rate, {group} tags (L{days})",
+            family="customer_health",
+            value_kind=RATE_PCT,
+            numerator=numerator,
+            denominator=denominator,
+            sql="100 * COUNT(DISTINCT tagged_conversations) / NULLIF(COUNT(DISTINCT conversations), 0)",
+            date_basis=error_rate.DATE_BASIS,
+            maturity=f"L{days}: {days} complete America/New_York days ending before today. Not a maturity horizon.",
+            filters=("error_group",),
+            filter_note=(
+                "Instances are provisional until a live reconciliation exists. "
+                f"Error group is {group} (scout.taxonomy.issue_tags.ERROR_RATE_GROUP), a provisional default "
+                "until the error sub-category is chosen. Tag names resolve to UUIDs through TAG_ID_TO_NAME; "
+                f"{len(unresolved)} legacy taxonomy names in the group have no UUID and match no ticket. "
+                "All channels."
+            ),
+            enrichment="None.",
+            freshness="Queried when /errors runs. Not a stored snapshot.",
+            evidence="Error group, tag names matched, and tag names with no UUID.",
+            producer="queries.errors.run_error_rates via scout.health.error_rate.error_rate_query",
+        )
+        for days in PERIOD_LENGTHS
+    )
+
+
 def all_specs() -> Tuple[MetricSpec, ...]:
     return (
         _period_rate_specs()
@@ -517,6 +563,7 @@ def all_specs() -> Tuple[MetricSpec, ...]:
         + _refund_export_specs()
         + _returns_voice_specs()
         + _health_specs()
+        + _support_error_rate_specs()
     )
 
 

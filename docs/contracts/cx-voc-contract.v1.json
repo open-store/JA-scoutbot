@@ -1162,6 +1162,120 @@
         "note": "No single value; see evidence for themes and counts."
       },
       "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.support_error_rate_l7",
+      "label": "Support error rate, Storefront / UX tags (L7)",
+      "family": "customer_health",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Distinct conversations carrying a Storefront / UX tag (Issue taxonomy)",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "COUNT(DISTINCT ID) where PARSE_JSON(TAGS) holds a UUID of: storefront-experience, web_issues"
+      },
+      "denominator": {
+        "description": "All conversations created in the window",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "COUNT(DISTINCT ID)"
+      },
+      "sql": "100 * COUNT(DISTINCT tagged_conversations) / NULLIF(COUNT(DISTINCT conversations), 0)",
+      "date_basis": "Conversation CREATED_AT, complete America/New_York days bound with their UTC offsets; the same windows as the period order return rate. _FIVETRAN_DELETED = FALSE.",
+      "maturity": "L7: 7 complete America/New_York days ending before today. Not a maturity horizon.",
+      "filters": [
+        "error_group"
+      ],
+      "filter_note": "Instances are provisional until a live reconciliation exists. Error group is Storefront / UX (scout.taxonomy.issue_tags.ERROR_RATE_GROUP), a provisional default until the error sub-category is chosen. Tag names resolve to UUIDs through TAG_ID_TO_NAME; 9 legacy taxonomy names in the group have no UUID and match no ticket. All channels.",
+      "enrichment": "None.",
+      "freshness": "Queried when /errors runs. Not a stored snapshot.",
+      "evidence": "Error group, tag names matched, and tag names with no UUID.",
+      "producer": "queries.errors.run_error_rates via scout.health.error_rate.error_rate_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.support_error_rate_l30",
+      "label": "Support error rate, Storefront / UX tags (L30)",
+      "family": "customer_health",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Distinct conversations carrying a Storefront / UX tag (Issue taxonomy)",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "COUNT(DISTINCT ID) where PARSE_JSON(TAGS) holds a UUID of: storefront-experience, web_issues"
+      },
+      "denominator": {
+        "description": "All conversations created in the window",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "COUNT(DISTINCT ID)"
+      },
+      "sql": "100 * COUNT(DISTINCT tagged_conversations) / NULLIF(COUNT(DISTINCT conversations), 0)",
+      "date_basis": "Conversation CREATED_AT, complete America/New_York days bound with their UTC offsets; the same windows as the period order return rate. _FIVETRAN_DELETED = FALSE.",
+      "maturity": "L30: 30 complete America/New_York days ending before today. Not a maturity horizon.",
+      "filters": [
+        "error_group"
+      ],
+      "filter_note": "Instances are provisional until a live reconciliation exists. Error group is Storefront / UX (scout.taxonomy.issue_tags.ERROR_RATE_GROUP), a provisional default until the error sub-category is chosen. Tag names resolve to UUIDs through TAG_ID_TO_NAME; 9 legacy taxonomy names in the group have no UUID and match no ticket. All channels.",
+      "enrichment": "None.",
+      "freshness": "Queried when /errors runs. Not a stored snapshot.",
+      "evidence": "Error group, tag names matched, and tag names with no UUID.",
+      "producer": "queries.errors.run_error_rates via scout.health.error_rate.error_rate_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
+    },
+    {
+      "metric_id": "health.support_error_rate_l180",
+      "label": "Support error rate, Storefront / UX tags (L180)",
+      "family": "customer_health",
+      "value_kind": "rate_pct",
+      "numerator": {
+        "description": "Distinct conversations carrying a Storefront / UX tag (Issue taxonomy)",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "COUNT(DISTINCT ID) where PARSE_JSON(TAGS) holds a UUID of: storefront-experience, web_issues"
+      },
+      "denominator": {
+        "description": "All conversations created in the window",
+        "source": "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS",
+        "source_status": "production_query",
+        "expression": "COUNT(DISTINCT ID)"
+      },
+      "sql": "100 * COUNT(DISTINCT tagged_conversations) / NULLIF(COUNT(DISTINCT conversations), 0)",
+      "date_basis": "Conversation CREATED_AT, complete America/New_York days bound with their UTC offsets; the same windows as the period order return rate. _FIVETRAN_DELETED = FALSE.",
+      "maturity": "L180: 180 complete America/New_York days ending before today. Not a maturity horizon.",
+      "filters": [
+        "error_group"
+      ],
+      "filter_note": "Instances are provisional until a live reconciliation exists. Error group is Storefront / UX (scout.taxonomy.issue_tags.ERROR_RATE_GROUP), a provisional default until the error sub-category is chosen. Tag names resolve to UUIDs through TAG_ID_TO_NAME; 9 legacy taxonomy names in the group have no UUID and match no ticket. All channels.",
+      "enrichment": "None.",
+      "freshness": "Queried when /errors runs. Not a stored snapshot.",
+      "evidence": "Error group, tag names matched, and tag names with no UUID.",
+      "producer": "queries.errors.run_error_rates via scout.health.error_rate.error_rate_query",
+      "in_health_score": false,
+      "health_weight": null,
+      "blockers": [],
+      "scale": {
+        "minimum": 0.0,
+        "maximum": 100.0,
+        "note": "Percent of the denominator, 0 to 100. Computed once from summed counts."
+      },
+      "validation": "not_validated"
     }
   ]
 }

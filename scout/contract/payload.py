@@ -1,8 +1,8 @@
 """Contract instances from Scout's report outputs.
 
-``contract_payload`` takes the dict ``queries.returns.run_returns`` returns
-and the dict ``scout.services.health_service.build_health_report`` returns,
-and describes each metric with the fields its ``MetricSpec`` promises. It
+``contract_payload`` takes the dict ``queries.returns.run_returns`` returns,
+the dict ``scout.services.health_service.build_health_report`` returns, and
+the report ``queries.errors.run_error_rates`` returns, and describes each metric with the fields its ``MetricSpec`` promises. It
 never recomputes a metric. An unavailable metric has ``value: null``.
 """
 
@@ -26,11 +26,13 @@ from scout.contract.spec import (
     MetricSpec,
     all_specs,
 )
+from scout.health.error_rate import ErrorRateReport
 from scout.returns.comments import CommentSynthesis
 from scout.returns.metrics import MetricStatus, RatesReport
 from scout.returns.period import PeriodReport
 from scout.returns.reasons import ReasonSummary
 from scout.returns.recommendations import MonitoringView, RankedProduct
+from scout.taxonomy.issue_tags import ERROR_RATE_GROUP
 
 _FROM_METRIC_STATUS = {
     MetricStatus.VALIDATED: AVAILABLE,
@@ -315,10 +317,30 @@ def _returns_from_health(entry: Mapping[str, Any], specs: Mapping[str, MetricSpe
     return out
 
 
+def _error_rate_instances(report: ErrorRateReport, specs: Mapping[str, MetricSpec]) -> List[Dict[str, object]]:
+    if report.group != ERROR_RATE_GROUP:
+        raise ValueError(f"The contract error rate is {ERROR_RATE_GROUP}, not {report.group}.")
+    out: List[Dict[str, object]] = []
+    for rate in report.rates:
+        spec = specs.get(f"health.support_error_rate_{rate.window.label.lower()}")
+        if spec is None:
+            continue
+        out.append(instance(
+            spec, availability=_FROM_METRIC_STATUS[rate.status], value=rate.value_pct,
+            numerator=rate.tagged, denominator=rate.total,
+            window=f"{rate.window.label}: {rate.window.describe()}",
+            reasons=[rate.reason], filters_applied={"error_group": report.group},
+            evidence={"group": report.group, "tags_matched": list(report.tags_matched),
+                      "tags_unresolved": list(report.tags_unresolved)},
+        ))
+    return out
+
+
 def contract_payload(
     returns_data: Optional[Mapping[str, Any]] = None,
     health_report: Optional[Mapping[str, Any]] = None,
     generated_at: Optional[datetime] = None,
+    error_rates: Optional[ErrorRateReport] = None,
 ) -> Dict[str, object]:
     """One versioned contract document from whichever reports are given."""
     specs = {s.metric_id: s for s in all_specs()}
@@ -327,6 +349,8 @@ def contract_payload(
         metrics += _returns_instances(returns_data, specs)
     if health_report is not None:
         metrics += _health_instances(health_report, specs, include_returns=returns_data is None)
+    if error_rates is not None:
+        metrics += _error_rate_instances(error_rates, specs)
     moment = generated_at or datetime.now(timezone.utc)
     return {
         "contract_version": CONTRACT_VERSION,

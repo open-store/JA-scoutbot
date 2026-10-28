@@ -1,10 +1,26 @@
 """
 Scout Errors Query Module
 Identifies error-related customer issues from Snowflake.
+
+The error rate is the tag-based support error rate in
+``scout.health.error_rate``. Categories, the CSAT comparison, and samples
+still come from the subject keywords below.
 """
 
+from typing import Sequence
+
+from scout.health.error_rate import (
+    NO_TAGS_REASON,
+    ErrorRateReport,
+    RateWindow,
+    error_rate_query,
+    report_from_rows,
+    standard_rate_windows,
+    unavailable_report,
+)
 from scout.integrations.snowflake import execute_query_dict
 from scout.routing.command_parser import ParsedCommand
+from scout.taxonomy.issue_tags import ERROR_RATE_GROUP, resolve_issue_tags
 
 
 # Error-related keywords to search in subjects
@@ -26,6 +42,16 @@ def _build_error_subject_filter() -> str:
     for kw in ERROR_KEYWORDS:
         conditions.append(f"LOWER(SUBJECT) LIKE '%{kw.lower()}%'")
     return " OR ".join(conditions)
+
+
+def run_error_rates(windows: Sequence[RateWindow] | None = None,
+                    group: str = ERROR_RATE_GROUP) -> ErrorRateReport:
+    """Support error rate per window. Default: L7, L30, and L180."""
+    chosen = tuple(standard_rate_windows() if windows is None else windows)
+    if not resolve_issue_tags(group)[0]:
+        return unavailable_report(chosen, group, NO_TAGS_REASON)
+    sql, params = error_rate_query(chosen, group)
+    return report_from_rows(chosen, execute_query_dict(sql, params), group)
 
 
 def run_errors(cmd: ParsedCommand) -> dict:
@@ -138,9 +164,17 @@ def run_errors(cmd: ParsedCommand) -> dict:
     """
     samples_data = execute_query_dict(samples_sql)
 
+    if cmd.start_date is None or cmd.end_date is None:
+        raise ValueError("errors command has no window")
+    error_rate = run_error_rates((
+        RateWindow("current", cmd.start_date, cmd.end_date),
+        RateWindow("previous", cmd.previous_start_date, cmd.previous_end_date),
+    ))
+
     return {
         "current": current_data,
         "previous": prev_data,
+        "error_rate": error_rate,
         "categories": category_data,
         "csat_comparison": csat_data,
         "samples": samples_data,

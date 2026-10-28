@@ -4,12 +4,12 @@ Every source is mocked. Nothing here opens a connection or calls a model.
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
 
-from queries import returns
+from queries import errors, returns
 from scout.contract import payload as payload_mod
 from scout.contract import spec as spec_mod
 from scout.contract.__main__ import render_spec
@@ -25,12 +25,15 @@ from scout.contract.spec import (
     ValidationRecord,
     all_specs,
 )
+from scout.health.error_rate import standard_rate_windows
 from scout.health.score import DEFAULT_CONFIG
 from scout.returns.metrics import COHORT_UNITS_MEASURES, RATE_DEFINITIONS
 from scout.returns.sources import REDO_RETURNS
 from scout.routing.command_parser import parse_command
 from scout.services.health_service import build_health_report
+from scout.taxonomy.issue_tags import ERROR_RATE_GROUP
 from scout.tests.health_fixture import patched_sources, source_outputs
+from scout.tests.test_error_rate import fake_error_rate_rows
 from scout.tests.test_returns_report import _Conn, fake_period_query
 
 CONTRACT_FILE = Path(__file__).resolve().parents[2] / "docs" / "contracts" / "cx-voc-contract.v1.json"
@@ -43,6 +46,12 @@ def returns_data(monkeypatch):
     monkeypatch.setattr(returns, "get_connection", lambda: _Conn([]))
     monkeypatch.setattr(returns, "execute_query_dict", fake_period_query)
     return returns.run_returns(30)
+
+
+@pytest.fixture
+def error_rates(monkeypatch):
+    monkeypatch.setattr(errors, "execute_query_dict", fake_error_rate_rows)
+    return errors.run_error_rates(standard_rate_windows(date(2026, 10, 27)))
 
 
 @pytest.fixture
@@ -64,7 +73,7 @@ def test_committed_contract_file_matches_the_code():
 
 def test_metric_ids_are_unique_and_every_kind_has_a_scale():
     ids = [s.metric_id for s in all_specs()]
-    assert len(ids) == len(set(ids)) == 28
+    assert len(ids) == len(set(ids)) == 31
     assert all(s.value_kind in SCALES for s in all_specs())
     assert {s.family for s in all_specs()} == {"returns", "customer_health"}
 
@@ -105,14 +114,44 @@ def test_nothing_is_validated():
 
 # ── Instances ────────────────────────────────────────────────────
 
-def test_payload_covers_returns_and_health_without_validating_anything(returns_data, health_report):
-    doc = contract_payload(returns_data, health_report, generated_at=FIXED_TIME)
+def test_payload_covers_returns_and_health_without_validating_anything(returns_data, health_report, error_rates):
+    doc = contract_payload(returns_data, health_report, generated_at=FIXED_TIME, error_rates=error_rates)
     assert doc["contract_version"] == CONTRACT_VERSION and doc["generated_at"] == FIXED_TIME.isoformat()
     by = _by_id(doc)
     assert set(by) == set(SPECS)
     assert len(doc["metrics"]) == len(SPECS)
     assert {m["status"]["validation"] for m in doc["metrics"]} == {NOT_VALIDATED}
     json.dumps(doc)
+
+
+def test_support_error_rate_spec_names_its_group_and_tags():
+    for days in (7, 30, 180):
+        s = SPECS[f"health.support_error_rate_l{days}"]
+        assert s.value_kind == RATE_PCT and s.family == "customer_health" and not s.in_health_score
+        assert ERROR_RATE_GROUP in s.label and f"(L{days})" in s.label
+        assert s.numerator is not None and "storefront-experience" in (s.numerator.expression or "")
+        assert s.denominator is not None and s.denominator.source.endswith("RICHPANEL_CONNECTOR.CONVERSATIONS")
+        assert "America/New_York" in s.date_basis and "ERROR_RATE_GROUP" in s.filter_note
+
+
+def test_support_error_rate_instances_are_provisional_with_counts(error_rates):
+    by = _by_id(contract_payload(error_rates=error_rates, generated_at=FIXED_TIME))
+    assert set(by) == {f"health.support_error_rate_l{d}" for d in (7, 30, 180)}
+    l30 = by["health.support_error_rate_l30"]
+    assert l30["status"]["availability"] == "provisional" and l30["status"]["validation"] == NOT_VALIDATED
+    assert (l30["numerator"]["value"], l30["denominator"]["value"]) == (21, 3556)
+    assert l30["value"] == pytest.approx(100 * 21 / 3556)
+    assert l30["window"] == "L30: Sep 27 – Oct 26, 2026 (ET)"
+    assert l30["filters"]["applied"] == {"error_group": ERROR_RATE_GROUP}
+    assert l30["evidence"]["tags_matched"] == ["storefront-experience", "web_issues"]
+    assert "Tech Issue - Website Error" in l30["evidence"]["tags_unresolved"]
+
+
+def test_payload_rejects_an_error_rate_for_another_group(monkeypatch):
+    monkeypatch.setattr(errors, "execute_query_dict", fake_error_rate_rows)
+    other = errors.run_error_rates(standard_rate_windows(date(2026, 10, 27)), group="Fulfillment")
+    with pytest.raises(ValueError):
+        contract_payload(error_rates=other, generated_at=FIXED_TIME)
 
 
 def test_period_rate_instances_keep_counts_and_leave_exchange_share_unavailable(returns_data):

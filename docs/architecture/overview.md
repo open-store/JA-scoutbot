@@ -91,6 +91,8 @@ Product VOC goes through `voc_service.run_product_voc`:
 
 Current scopes: `product_feedback`, `returns`, `shipping`, `pricing_promos`, `order_status`, `web_errors`, `customer_support_experience`.
 
+`scout/taxonomy/issue_tags.py` is separate from those scopes. It lists the tag names for each Issue sub-category and holds `ERROR_RATE_GROUP`, the group the `/errors` rate counts.
+
 ## Related
 
 - [Natural-language routing](nl-routing.md)
