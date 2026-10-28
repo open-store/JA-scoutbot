@@ -98,7 +98,7 @@
         "expression": "COUNT(DISTINCT SHOP_ORDER_ID). Order-date column is OS_DT; the filter converts CREATED_AT from UTC to America/New_York"
       },
       "sql": "100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
-      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes redo_exchange and loop_exchange, test and test-order tags, and voided or cancelled orders. Numerator excludes rejected and deleted returns.",
+      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes replacement orders whose id is a Redo EXCHANGE_ORDER_EXTERNAL_ID, test and test-order tags, and voided or cancelled orders. OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusion rules. Numerator excludes rejected and deleted returns.",
       "maturity": "L7: 7 complete America/New_York days ending before today. Not a maturity horizon.",
       "filters": [
         "exclude_replacement_order_types",
@@ -106,7 +106,7 @@
         "exclude_voided_and_cancelled",
         "exclude_rejected_and_deleted_returns"
       ],
-      "filter_note": "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
+      "filter_note": "Default: SHOP_ORDER_ID is not a Redo EXCHANGE_ORDER_EXTERNAL_ID; tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusions. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
       "enrichment": "The post-purchase aggregate is not used and does not replace Redo outcomes.",
       "freshness": "Queried when /returns runs. Not a stored snapshot.",
       "evidence": "Raw return count and unmatched returns for the default. Comparison counts: numerator including rejected and deleted, denominator including replacement and test orders, and denominator including voided and cancelled orders.",
@@ -218,7 +218,7 @@
         "expression": "COUNT(DISTINCT SHOP_ORDER_ID). Order-date column is OS_DT; the filter converts CREATED_AT from UTC to America/New_York"
       },
       "sql": "100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
-      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes redo_exchange and loop_exchange, test and test-order tags, and voided or cancelled orders. Numerator excludes rejected and deleted returns.",
+      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes replacement orders whose id is a Redo EXCHANGE_ORDER_EXTERNAL_ID, test and test-order tags, and voided or cancelled orders. OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusion rules. Numerator excludes rejected and deleted returns.",
       "maturity": "L30: 30 complete America/New_York days ending before today. Not a maturity horizon.",
       "filters": [
         "exclude_replacement_order_types",
@@ -226,7 +226,7 @@
         "exclude_voided_and_cancelled",
         "exclude_rejected_and_deleted_returns"
       ],
-      "filter_note": "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
+      "filter_note": "Default: SHOP_ORDER_ID is not a Redo EXCHANGE_ORDER_EXTERNAL_ID; tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusions. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
       "enrichment": "The post-purchase aggregate is not used and does not replace Redo outcomes.",
       "freshness": "Queried when /returns runs. Not a stored snapshot.",
       "evidence": "Raw return count and unmatched returns for the default. Comparison counts: numerator including rejected and deleted, denominator including replacement and test orders, and denominator including voided and cancelled orders.",
@@ -338,7 +338,7 @@
         "expression": "COUNT(DISTINCT SHOP_ORDER_ID). Order-date column is OS_DT; the filter converts CREATED_AT from UTC to America/New_York"
       },
       "sql": "100 * COUNT(DISTINCT orders_with_return) / NULLIF(COUNT(DISTINCT orders_placed), 0)",
-      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes redo_exchange and loop_exchange, test and test-order tags, and voided or cancelled orders. Numerator excludes rejected and deleted returns.",
+      "date_basis": "Return CREATED_AT converted to America/New_York; order OS_DT. Default until the open choices are settled. Not a cohort rate: a return in the window can belong to an order placed earlier, so the ratio can exceed 100%. Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. Denominator excludes replacement orders whose id is a Redo EXCHANGE_ORDER_EXTERNAL_ID, test and test-order tags, and voided or cancelled orders. OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusion rules. Numerator excludes rejected and deleted returns.",
       "maturity": "L180: 180 complete America/New_York days ending before today. Not a maturity horizon.",
       "filters": [
         "exclude_replacement_order_types",
@@ -346,7 +346,7 @@
         "exclude_voided_and_cancelled",
         "exclude_rejected_and_deleted_returns"
       ],
-      "filter_note": "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
+      "filter_note": "Default: SHOP_ORDER_ID is not a Redo EXCHANGE_ORDER_EXTERNAL_ID; tag is not exactly test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not rejected or deleted. OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusions. No sales-channel column, so this is all channels. Comparison figures are not shown in Slack.",
       "enrichment": "The post-purchase aggregate is not used and does not replace Redo outcomes.",
       "freshness": "Queried when /returns runs. Not a stored snapshot.",
       "evidence": "Raw return count and unmatched returns for the default. Comparison counts: numerator including rejected and deleted, denominator including replacement and test orders, and denominator including voided and cancelled orders.",

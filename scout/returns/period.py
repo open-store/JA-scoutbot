@@ -16,12 +16,13 @@ date of ``CREATED_AT`` (``TIMESTAMP_NTZ``). The window therefore filters
 ``CREATED_AT`` converted from UTC to America/New_York, and the return's
 ``CREATED_AT`` is converted to the same timezone. Both sides use those bounds.
 
-The default denominator excludes ``OS_ORDER_STATUS`` values ``redo_exchange``
-and ``loop_exchange`` (the only exchange or replacement order types on that
-column), orders whose tags are exactly ``test`` or ``test order``, and orders
-that are voided (``OS_ORDER_STATUS = 'voided'``) or cancelled
-(``ORDER_CANCELLED_AT`` is not null). The default numerator excludes returns
-with status ``rejected`` or ``deleted``. ``/returns`` shows that default.
+The default denominator excludes orders whose id is some Redo return's
+``EXCHANGE_ORDER_EXTERNAL_ID``. ``OS_ORDER_STATUS`` values ``redo_exchange``
+and ``loop_exchange`` are not that set: most of those orders are ordinary
+customer orders. Orders tagged exactly ``test`` or ``test order`` are
+excluded, as are voided orders (``OS_ORDER_STATUS = 'voided'``) and orders
+with ``ORDER_CANCELLED_AT`` set. The default numerator excludes returns with
+status ``rejected`` or ``deleted``. ``/returns`` shows that default.
 Comparison figures stay off the Slack message.
 
 There is no sales-channel column, so the rate is all channels.
@@ -52,7 +53,6 @@ SUBMITTED_AT_COLUMN = "CREATED_AT"
 ORDER_DATE_COLUMN = "OS_DT"
 CANCELLED_AT_COLUMN = "ORDER_CANCELLED_AT"
 PERIOD_LENGTHS: tuple[int, ...] = (7, 30, 180)
-REPLACEMENT_ORDER_STATUSES: tuple[str, ...] = ("redo_exchange", "loop_exchange")
 EXCLUDED_RETURN_STATUSES: tuple[str, ...] = ("rejected", "deleted")
 TEST_ORDER_TAGS: tuple[str, ...] = ("test", "test order")
 
@@ -62,7 +62,7 @@ OUTCOME_RULE = (
     "(refund, store_credit, or none). RETURN_COMPENSATION_METHOD is not used."
 )
 FILTERS_APPLIED: tuple[str, ...] = (
-    "denominator excludes redo_exchange and loop_exchange order types",
+    "denominator excludes orders whose id is a Redo EXCHANGE_ORDER_EXTERNAL_ID",
     "denominator excludes orders tagged exactly test or test order",
     "denominator excludes voided orders and orders with ORDER_CANCELLED_AT set",
     "numerator excludes rejected and deleted returns",
@@ -75,8 +75,10 @@ PERIOD_NOTE = (
     "can belong to an order placed earlier, so the ratio can exceed 100%. "
     "Order-date column is OS_DT (the UTC date of order CREATED_AT); both sides use "
     "America/New_York. All channels: OS_ALL_ORDERS has no sales-channel column. "
-    "Denominator excludes redo_exchange and loop_exchange, test and test-order tags, "
-    "and voided or cancelled orders. Numerator excludes rejected and deleted returns."
+    "Denominator excludes replacement orders whose id is a Redo EXCHANGE_ORDER_EXTERNAL_ID, "
+    "test and test-order tags, and voided or cancelled orders. "
+    "OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusion rules. "
+    "Numerator excludes rejected and deleted returns."
 )
 
 
@@ -191,7 +193,6 @@ def period_query(
     orders = _qualified(database, "MAIN_OS", "OS_ALL_ORDERS")
     submitted = ident(SUBMITTED_AT_COLUMN)
     placed_at = ident(SUBMITTED_AT_COLUMN)
-    replacement = ", ".join(repr(status) for status in REPLACEMENT_ORDER_STATUSES)
     excluded_returns = ", ".join(repr(status) for status in EXCLUDED_RETURN_STATUSES)
     test_tags = "|".join(TEST_ORDER_TAGS)
     sql = f"""
@@ -233,13 +234,19 @@ return_counts AS (
     FROM submitted
     GROUP BY label
 ),
+exchange_order_ids AS (
+    SELECT DISTINCT TO_VARCHAR(EXCHANGE_ORDER_EXTERNAL_ID) AS oid
+    FROM {returns}
+    WHERE EXCHANGE_ORDER_EXTERNAL_ID IS NOT NULL
+),
 placed AS (
     -- OS_DT is the order-date column: the UTC date of CREATED_AT.
     -- The window is that timestamp converted from UTC to America/New_York.
+    -- is_replacement is an order id Redo stored as EXCHANGE_ORDER_EXTERNAL_ID.
     SELECT
         w.label,
         ord.SHOP_ORDER_ID AS shop_order_id,
-        IFF(ord.OS_ORDER_STATUS IN ({replacement}), 1, 0) AS is_replacement,
+        IFF(x.oid IS NOT NULL, 1, 0) AS is_replacement,
         IFF(
             REGEXP_LIKE(
                 ',' || LOWER(COALESCE(ord.ORDER_TAGS, '')) || ',',
@@ -252,6 +259,7 @@ placed AS (
     JOIN {orders} ord
       ON CONVERT_TIMEZONE('UTC', 'America/New_York', ord.{placed_at})::DATE >= w.start_date
      AND CONVERT_TIMEZONE('UTC', 'America/New_York', ord.{placed_at})::DATE < w.end_date
+    LEFT JOIN exchange_order_ids x ON x.oid = TO_VARCHAR(ord.SHOP_ORDER_ID)
 ),
 items AS (
     SELECT

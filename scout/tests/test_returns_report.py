@@ -134,7 +134,8 @@ def test_report_leads_with_the_period_rate_and_labels_the_export_honestly(export
     assert "Order-date column is OS_DT" in text
     assert "America/New_York" in text
     assert "no sales-channel column" in text
-    assert "redo_exchange" in text and "loop_exchange" in text
+    assert "EXCHANGE_ORDER_EXTERNAL_ID" in text
+    assert "are not exclusion rules" in text
     assert "rejected and deleted" in text
     assert "including rejected" not in text
     assert "with them included" not in text

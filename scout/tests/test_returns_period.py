@@ -37,7 +37,10 @@ def test_query_is_read_only_and_keeps_unmatched_returns_in_the_numerator():
     assert "CONVERT_TIMEZONE('America/New_York', ret.\"CREATED_AT\")" in sql
     assert "CONVERT_TIMEZONE('UTC', 'America/New_York', ord.\"CREATED_AT\")" in sql
     assert "OS_DT is the order-date column" in sql
-    assert "redo_exchange" in sql and "loop_exchange" in sql
+    assert "EXCHANGE_ORDER_EXTERNAL_ID" in sql
+    assert "is_replacement" in sql
+    assert "OS_ORDER_STATUS IN" not in sql
+    assert "loop_exchange" not in sql
     assert "EXCHANGE_ITEM_QUANTITY" in sql
     assert "RETURN_ITEM" in sql
     assert "EXCHANGE_ORDER_EXTERNAL_ID" in sql

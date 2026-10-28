@@ -210,9 +210,10 @@ def _period_rate_specs() -> Tuple[MetricSpec, ...]:
                 "exclude_rejected_and_deleted_returns",
             ),
             filter_note=(
-                "Default: OS_ORDER_STATUS not in (redo_exchange, loop_exchange); tag is not exactly "
+                "Default: SHOP_ORDER_ID is not a Redo EXCHANGE_ORDER_EXTERNAL_ID; tag is not exactly "
                 "test or test order; not voided; ORDER_CANCELLED_AT is null; return STATUS is not "
-                "rejected or deleted. No sales-channel column, so this is all channels. "
+                "rejected or deleted. OS_ORDER_STATUS redo_exchange and loop_exchange are not exclusions. "
+                "No sales-channel column, so this is all channels. "
                 "Comparison figures are not shown in Slack."
             ),
             enrichment="The post-purchase aggregate is not used and does not replace Redo outcomes.",

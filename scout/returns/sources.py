@@ -114,7 +114,8 @@ OS_ALL_ORDERS = ReturnsSource(
     evidence=(
         "Base table read on 2026-10-27: 665,881 rows, one per order. OS_DT is the "
         "order-date column and equals the UTC date of CREATED_AT on every row. "
-        "Exchange order types on OS_ORDER_STATUS are redo_exchange and loop_exchange only. "
+        "Replacement orders are those whose id is a Redo EXCHANGE_ORDER_EXTERNAL_ID, "
+        "not every OS_ORDER_STATUS of redo_exchange or loop_exchange. "
         "ORDER_CANCELLED_AT is the cancellation timestamp; voided orders are a subset of it. "
         "There is no test-order column; exact tags test and test order are the test rule. "
         "There is no sales-channel column. This is the period-rate denominator, "

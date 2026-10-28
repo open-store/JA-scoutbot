@@ -46,7 +46,7 @@ Yankho's choice, 2026-10-27: drop the delivered-unit denominator. The return rat
 | Raw return count | Count of those default `RETURN` rows, labeled separately. It is not the rate. |
 | Unmatched returns | Default returns whose order id is not in `OS_ALL_ORDERS`. They stay in the numerator. |
 | Denominator | Distinct `SHOP_ORDER_ID` in `MAIN_OS.OS_ALL_ORDERS` placed in the same window. The order-date column is `OS_DT` (the UTC date of order `CREATED_AT`). The window converts that `CREATED_AT` from UTC to `America/New_York`. |
-| Excluded order types | `OS_ORDER_STATUS` in `redo_exchange` or `loop_exchange`. Those are the only exchange or replacement values on that column. |
+| Replacement orders | Excluded only when `SHOP_ORDER_ID` is some Redo return's `EXCHANGE_ORDER_EXTERNAL_ID`. `OS_ORDER_STATUS` `redo_exchange` and `loop_exchange` are not that set: 5,406 of 24,516 `redo_exchange` orders are exchange-order ids, and 0 of 40,974 `loop_exchange` orders are. |
 | Test orders | Tags that are exactly `test` or `test order`. There is no test-order column. Experiment tags are not treated as test orders. |
 | Voided and cancelled | Excluded in the default (`OS_ORDER_STATUS = 'voided'` or `ORDER_CANCELLED_AT` is not null). Every voided order is also cancelled. |
 | Channel | All channels. `OS_ALL_ORDERS` has no sales-channel column. |
