@@ -187,6 +187,9 @@ def test_errors_reply_shows_the_tag_rate_with_its_label(monkeypatch):
     assert "• *Total error-related tickets:* 60" in text
     assert "• *Discount/Promo Code Issues:* 7 tickets" in text
     assert "1.7%" not in text
+    assert "The error rate counts tickets carrying Storefront / UX taxonomy tags." in text
+    assert "Total error-related tickets, categories, and CSAT impact use subject-line keyword matching" in text
+    assert "require mapping" not in text
 
 
 def test_errors_reply_says_when_the_rate_is_unavailable(monkeypatch):

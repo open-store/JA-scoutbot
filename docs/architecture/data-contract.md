@@ -26,7 +26,7 @@ This contract defines the CX/VOC metrics once, so that Scout and a future Rocky 
 | `returns.reason_share` | `distribution` | Redo units per primary reason ÷ all Redo returned units, including those with no reason | Return requested | — |
 | `returns.comment_themes` | `themes` | Distinct returns per theme, computed from citations | Return requested | — |
 | `returns.products_to_watch` | `ranking` | Excess returned units over the overall rate | Delivery cohort | — |
-| `health.support_csat` | `rate_pct` | Tickets rated 4–5 ÷ rated tickets (Richpanel via Snowflake) | Ticket created, ET complete days | 0.25 |
+| `health.support_csat` | `rate_pct` | Tickets rated 4–5 ÷ rated tickets (Richpanel via Snowflake) | Ticket created, complete UTC days (the dates of the last N ET days, no offset bound) | 0.25 |
 | `health.support_error_rate_l{7,30,180}` | `rate_pct` | Provisional. Distinct conversations with a tag from the error group (`ERROR_RATE_GROUP`, default Storefront / UX) ÷ all conversations (Richpanel via Snowflake). Changing the group changes the numerator; regenerate the JSON | Conversation created, ET complete days, period-rate windows | — |
 | `health.nps_survey` | `nps` | % promoters − % detractors, NPS Survey (KnoCommerce via Snowflake) | Response created, UTC | 0.30 |
 | `health.okendo_rating` | `stars` | Mean stars of approved reviews (Okendo API, live) | Review date, UTC | 0.20 |

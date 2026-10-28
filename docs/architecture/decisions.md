@@ -8,7 +8,7 @@ These are the definitions the current code implements.
 
 CSAT % is the count of ratings `'4'` and `'5'` divided by the count of conversations with a non-null rating, times 100, rounded to one decimal. Ratings `'1'`, `'2'`, and `'3'` are the negative group used for low-CSAT subject themes.
 
-The slash-command window is complete days in `America/New_York`: the end is today at midnight, and the start is that midnight minus N days. The prior window is the N days before that.
+The slash-command window takes its dates from `America/New_York`: the end is today's date there, and the start is that date minus N days. The prior window is the N days before that. The query passes those bounds without an offset, and Scout's Snowflake session is UTC, so the counted tickets fall on complete UTC days. Whether to align this with ET is an open decision.
 
 Short windows can have very few ratings. The report still returns the percentage. It does not hide a small sample.
 

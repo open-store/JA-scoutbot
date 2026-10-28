@@ -152,7 +152,10 @@ _WEIGHTS = {c.key: c.weight for c in DEFAULT_CONFIG.components}
 _TICKET_SOURCE = "FIVETRAN_TEST_DATABASE.RICHPANEL_CONNECTOR.CONVERSATIONS"
 _SURVEY_SOURCE = "ANALYTICS.KNOCOMMERCE__NPS___SURVEYS_ (RESPONSE, RESPONSE_ANSWER)"
 _OKENDO_SOURCE = "Okendo reviews API"
-_TICKET_DATES = "Ticket CREATED_AT, complete days in America/New_York"
+_TICKET_DATES = (
+    "Ticket CREATED_AT, complete UTC days: the dates of the last N complete America/New_York days, "
+    "passed without an offset and read as 00:00 UTC by Scout's Snowflake session"
+)
 _SURVEY_DATES = "RESPONSE.CREATED_AT, UTC dates, end excluded"
 _FIVETRAN_FRESHNESS = "Latest _FIVETRAN_SYNCED on the source table; stale after 48 hours or no sync in 30 days."
 
@@ -335,7 +338,8 @@ def _export_spec(metric_id: str, label: str, value_kind: str, numerator: Quantit
     return MetricSpec(
         metric_id=metric_id, label=label, family="returns", value_kind=value_kind,
         numerator=numerator, denominator=denominator, sql=sql,
-        date_basis="REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+        date_basis=("REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE(), "
+                    "the UTC date in Scout's session"),
         maturity="Not cohort-based; refunds processed in the window.",
         filters=("product_title_contains",),
         filter_note="product: matches PRODUCT_TITLE as a substring.",

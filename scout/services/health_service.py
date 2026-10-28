@@ -29,7 +29,7 @@ from scout.repositories.health_repository import (
     fetch_opening_messages,
     fetch_sync_times,
 )
-from scout.routing.command_parser import BUSINESS_TZ, ParsedCommand
+from scout.routing.command_parser import ParsedCommand
 from scout.services.product_catalog_service import get_catalog
 
 logger = logging.getLogger("scout.services.health")
@@ -101,7 +101,7 @@ def build_health_report(
 
     richpanel_fresh = sources.freshness_from(results.get("richpanel_sync"), config.stale_after_hours)
     knocommerce_fresh = sources.freshness_from(results.get("knocommerce_sync"), config.stale_after_hours)
-    ticket_window = f"{cmd.timeframe_label}, complete days, {BUSINESS_TZ.key}"
+    ticket_window = f"{cmd.timeframe_label}, complete UTC days"
     survey_window = sources.knocommerce_window(days)
 
     entries: Dict[str, ScorecardEntry] = {

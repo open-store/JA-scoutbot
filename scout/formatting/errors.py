@@ -94,7 +94,7 @@ def format_errors(data: dict) -> str:
     # Caveat
     lines.append("")
     lines.append("*Caveat*")
-    lines.append("• Error detection is based on subject-line keyword matching (e.g., error, bug, checkout, payment, discount code). Formal error tags are stored as UUIDs and require mapping for precise classification.")
+    lines.append(f"• The error rate counts tickets carrying {group} taxonomy tags. Total error-related tickets, categories, and CSAT impact use subject-line keyword matching (e.g., error, bug, checkout, payment, discount code).")
 
     return "\n".join(lines)
 

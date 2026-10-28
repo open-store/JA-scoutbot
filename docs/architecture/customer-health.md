@@ -21,7 +21,7 @@ Each entry reports its source, population, definition, sample and eligible count
 
 | Entry | Module | Population and definition | Window | In score |
 |---|---|---|---|---|
-| Support CSAT | `queries/csat.run_csat` | Tickets rated 4–5 ÷ rated tickets × 100, all channels. Same number as `/csat`; not the `/daily` Richpanel API score | Complete days, America/New_York | Yes |
+| Support CSAT | `queries/csat.run_csat` | Tickets rated 4–5 ÷ rated tickets × 100, all channels. Same number as `/csat`; not the `/daily` Richpanel API score | Complete UTC days: the dates of the last N America/New_York days, read as UTC because no offset is bound | Yes |
 | NPS — NPS Survey | `queries/nps.get_nps_scores`, `get_nps_trend` | % promoters (9–10) − % detractors (0–6). NPS Survey and NPS Survey Copy merged | UTC dates, end excluded | Yes |
 | Okendo reviews | `queries/reviews.run_reviews` | Mean stars of approved reviews. A star rating, not CSAT | Last N days to now, UTC | Yes |
 | Returns — unit cohort item return rate | `queries/returns.run_return_rates` | Redo returned units ÷ eligible delivered Shopify units. This is not the period order return rate. Exchange rate and exchange share are shown, not scored | Mature delivery cohorts | Yes, when validated |

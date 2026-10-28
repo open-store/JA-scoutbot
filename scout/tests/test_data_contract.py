@@ -203,6 +203,7 @@ def test_refund_export_instances_keep_lines_and_shares_apart(returns_data):
     exchange = by["returns.refund_line_share_exchange"]
     assert (exchange["value"], exchange["numerator"]["value"], exchange["denominator"]["value"]) == (8.0, 80, 1000)
     assert "refund date, ET" in exchange["window"]
+    assert "CURRENT_DATE(), the UTC date" in exchange["date_basis"]
 
 
 def test_health_instances_carry_sample_freshness_and_comparison(health_report):
@@ -211,6 +212,8 @@ def test_health_instances_carry_sample_freshness_and_comparison(health_report):
     assert (csat["value"], csat["numerator"]["value"], csat["denominator"]["value"]) == (91.3, 376, 412)
     assert csat["freshness"]["status"] == "fresh"
     assert csat["evidence"]["comparison"]["prior_value"] == 90.1
+    assert csat["window"].endswith("complete UTC days")
+    assert csat["date_basis"].startswith("Ticket CREATED_AT, complete UTC days")
     nps = by["health.nps_survey"]
     assert nps["value"] == 51.6 and nps["value_kind"] == "nps" and nps["denominator"]["value"] == 310
     score = by["health.customer_health_score"]

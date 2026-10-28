@@ -641,7 +641,7 @@
       },
       "denominator": null,
       "sql": "COUNT(*)",
-      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE(), the UTC date in Scout's session",
       "maturity": "Not cohort-based; refunds processed in the window.",
       "filters": [
         "product_title_contains"
@@ -679,7 +679,7 @@
         "expression": "COUNT(*)"
       },
       "sql": "100 * SUM(CASE WHEN NOT IS_CANCELLATION AND IS_EXCHANGE THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)",
-      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE(), the UTC date in Scout's session",
       "maturity": "Not cohort-based; refunds processed in the window.",
       "filters": [
         "product_title_contains"
@@ -717,7 +717,7 @@
         "expression": "COUNT(*)"
       },
       "sql": "100 * SUM(CASE WHEN IS_CANCELLATION THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)",
-      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE(), the UTC date in Scout's session",
       "maturity": "Not cohort-based; refunds processed in the window.",
       "filters": [
         "product_title_contains"
@@ -755,7 +755,7 @@
         "expression": "COUNT(*)"
       },
       "sql": "100 * SUM(CASE WHEN NOT IS_CANCELLATION AND NOT IS_EXCHANGE THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0)",
-      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE()",
+      "date_basis": "REFUND_DATE_ET (refund processed date, ET); window ends at Snowflake CURRENT_DATE(), the UTC date in Scout's session",
       "maturity": "Not cohort-based; refunds processed in the window.",
       "filters": [
         "product_title_contains"
@@ -905,7 +905,7 @@
         "expression": "SATISFACTION_RATING IS NOT NULL"
       },
       "sql": null,
-      "date_basis": "Ticket CREATED_AT, complete days in America/New_York",
+      "date_basis": "Ticket CREATED_AT, complete UTC days: the dates of the last N complete America/New_York days, passed without an offset and read as 00:00 UTC by Scout's Snowflake session",
       "maturity": "Not cohort-based.",
       "filters": [],
       "filter_note": "All channels; /voc filters are not applied to CSAT. Not the /daily Richpanel API score.",
